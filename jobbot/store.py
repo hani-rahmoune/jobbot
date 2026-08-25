@@ -5,17 +5,22 @@ Every method that needs the current time takes `now: datetime` explicitly,
 always timezone-aware UTC, so tests can fast-forward months deterministically
 without sleeping or monkeypatching a clock.
 
-Two columns exist on `jobs` beyond what CLAUDE.md's milestone brief listed,
-both required to implement what the brief itself specifies elsewhere:
+Three columns exist on `jobs` beyond what CLAUDE.md's milestone brief listed:
 
 - `description`: the brief's Job round-trip requirement ("Job -> row -> Job
   must be lossless for every field") is unsatisfiable without storing it.
-- `last_verdict`: `unpublished_new()` must return jobs whose verdict was NEW
-  and are still unpublished. `published_at IS NULL` alone can't tell a NEW
-  job awaiting publish apart from a REPOST/BUMP/RESURRECTION job, which is
-  never published and so also has `published_at IS NULL` forever. Storing
-  the verdict is what makes "only NEW is publishable" enforceable by query,
-  not just by convention at record() time.
+- `last_verdict`: observability -- the last decision record() made for this
+  job_id. NOT what unpublished_new() uses to decide who's pending (see next).
+- `publish_pending`: the actual source of truth for "still needs to be
+  published". Originally unpublished_new() queried `last_verdict = NEW AND
+  published_at IS NULL`, but last_verdict is overwritten on every record()
+  call -- so a NEW job that fails to publish before the next poll gets
+  re-recorded as KNOWN, last_verdict becomes "KNOWN", and the job silently
+  vanishes from unpublished_new() forever despite never having been sent.
+  publish_pending fixes this by being a fact set once (True exactly when
+  record() assigns NEW, False in seed mode) that KNOWN/BUMP/REPOST/
+  RESURRECTION are never allowed to touch, and that only mark_published()
+  ever clears. See test_a_new_job_survives_an_unpublished_poll_cycle.
 
 Window settings (repost/resurrection/ghost-stale) are meant to live in
 settings.yaml, but JobStore takes only `path` per the milestone's API sketch.
@@ -35,7 +40,7 @@ from typing import Self
 
 from jobbot.models import Job
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -59,7 +64,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     published_at TEXT,
     disappeared_at TEXT,
     is_stale INTEGER NOT NULL DEFAULT 0,
-    last_verdict TEXT NOT NULL
+    last_verdict TEXT NOT NULL,
+    publish_pending INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS fingerprints (
@@ -112,9 +118,14 @@ def _parse_iso(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value is not None else None
 
 
-def _require_aware(now: datetime) -> None:
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware (CLAUDE.md: all timestamps are UTC)")
+def _require_utc(now: datetime) -> None:
+    # Not just aware -- specifically UTC (offset zero). age_ghosts() and every
+    # other window check compares stored ISO strings; that only sorts the
+    # same as chronological order when every timestamp shares one offset
+    # format. A +02:00 timestamp mixed in with +00:00 ones would silently
+    # break that, so it's rejected here instead of trusted.
+    if now.tzinfo is None or now.utcoffset() != timedelta(0):
+        raise ValueError("now must be timezone-aware UTC (offset zero), got: " + repr(now))
 
 
 class JobStore:
@@ -148,18 +159,26 @@ class JobStore:
 
     def initialize(self) -> None:
         """Idempotent: safe to call more than once, including on an
-        already-populated database."""
+        already-populated database. `CREATE TABLE IF NOT EXISTS` alone only
+        covers a brand-new file -- an existing v1 database already has a
+        `jobs` table, so it needs an explicit column added, not just a
+        bumped version constant."""
         cur = self._conn.cursor()
         cur.executescript(_SCHEMA)
         row = cur.execute("SELECT version FROM schema_version").fetchone()
+
         if row is None:
             cur.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        elif row["version"] < 2:
+            cur.execute("ALTER TABLE jobs ADD COLUMN publish_pending INTEGER NOT NULL DEFAULT 0")
+            cur.execute("UPDATE schema_version SET version = 2")
+
         self._conn.commit()
 
     # -- recording ---------------------------------------------------------
 
     def record(self, job: Job, now: datetime, seed_mode: bool = False) -> JobVerdict:
-        _require_aware(now)
+        _require_utc(now)
         cur = self._conn.cursor()
         verdict = self._record_one(cur, job, now, seed_mode)
         self._conn.commit()
@@ -170,7 +189,7 @@ class JobStore:
     ) -> dict[str, JobVerdict]:
         """Single transaction, all or nothing: if any job raises, every
         change made so far in this call is rolled back."""
-        _require_aware(now)
+        _require_utc(now)
         results: dict[str, JobVerdict] = {}
         cur = self._conn.cursor()
         try:
@@ -201,6 +220,7 @@ class JobStore:
                 cur, job, url_str, posted_at_iso, verdict,
                 first_seen_at=first_seen_at, last_seen_at=now_iso,
                 published_at=now_iso, disappeared_at=None, is_stale=is_stale,
+                publish_pending=0,
             )
             self._touch_fingerprint(cur, job.content_fingerprint, now_iso, job.job_id)
             return verdict
@@ -230,6 +250,11 @@ class JobStore:
                 first_seen_at=existing["first_seen_at"], last_seen_at=now_iso,
                 published_at=existing["published_at"], disappeared_at=None,
                 is_stale=existing["is_stale"],
+                # KNOWN/BUMP/RESURRECTION must never set OR clear a pending
+                # publish -- carried forward unchanged (A1). _upsert_job_row
+                # doesn't even put publish_pending in its UPDATE SET clause,
+                # so this value is only actually used on a fresh INSERT.
+                publish_pending=existing["publish_pending"],
             )
             self._touch_fingerprint(cur, job.content_fingerprint, now_iso, job.job_id)
             return verdict
@@ -252,6 +277,8 @@ class JobStore:
             cur, job, url_str, posted_at_iso, verdict,
             first_seen_at=now_iso, last_seen_at=now_iso,
             published_at=None, disappeared_at=None, is_stale=0,
+            # publish_pending = 1 exactly when record() assigns NEW (A1).
+            publish_pending=1 if verdict is JobVerdict.NEW else 0,
         )
         self._touch_fingerprint(cur, job.content_fingerprint, now_iso, job.job_id)
         return verdict
@@ -269,6 +296,7 @@ class JobStore:
         published_at: str | None,
         disappeared_at: str | None,
         is_stale: int,
+        publish_pending: int,
     ) -> None:
         cur.execute(
             """
@@ -276,8 +304,8 @@ class JobStore:
                 job_id, content_fingerprint, company, source, external_id,
                 title, location, contract_type, url, description,
                 source_posted_at, first_seen_at, last_seen_at, published_at,
-                disappeared_at, is_stale, last_verdict
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                disappeared_at, is_stale, last_verdict, publish_pending
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 content_fingerprint = excluded.content_fingerprint,
                 company = excluded.company,
@@ -294,12 +322,16 @@ class JobStore:
                 disappeared_at = excluded.disappeared_at,
                 is_stale = excluded.is_stale,
                 last_verdict = excluded.last_verdict
+                -- publish_pending deliberately absent from this SET clause:
+                -- KNOWN/BUMP/REPOST/RESURRECTION must never set or clear a
+                -- pending publish, only a fresh NEW row or mark_published()
+                -- may (see the module docstring and A1's load-bearing test).
             """,
             (
                 job.job_id, job.content_fingerprint, job.company, job.source, job.external_id,
                 job.title, job.location, job.contract_type, url_str, job.description,
                 posted_at_iso, first_seen_at, last_seen_at, published_at,
-                disappeared_at, is_stale, verdict.value,
+                disappeared_at, is_stale, verdict.value, publish_pending,
             ),
         )
 
@@ -326,16 +358,22 @@ class JobStore:
     # -- publishing ----------------------------------------------------------
 
     def mark_published(self, job_id: str, now: datetime) -> None:
-        _require_aware(now)
+        _require_utc(now)
         self._conn.execute(
-            "UPDATE jobs SET published_at = ? WHERE job_id = ?", (_iso(now), job_id)
+            "UPDATE jobs SET published_at = ?, publish_pending = 0 WHERE job_id = ?",
+            (_iso(now), job_id),
         )
         self._conn.commit()
 
     def unpublished_new(self) -> list[Job]:
+        # publish_pending, not last_verdict (A1): last_verdict is overwritten
+        # on every record() call, so a NEW job re-recorded as KNOWN before it
+        # publishes would otherwise vanish from this query forever.
+        # disappeared_at IS NULL (A3): a job pulled by the employer before we
+        # ever announced it shouldn't be announced now.
         rows = self._conn.execute(
-            "SELECT * FROM jobs WHERE last_verdict = ? AND published_at IS NULL AND is_stale = 0",
-            (JobVerdict.NEW.value,),
+            "SELECT * FROM jobs "
+            "WHERE publish_pending = 1 AND is_stale = 0 AND disappeared_at IS NULL"
         ).fetchall()
         return [_row_to_job(row) for row in rows]
 
@@ -346,7 +384,7 @@ class JobStore:
     ) -> int:
         """Jobs from this source+company not in seen_job_ids get
         disappeared_at set (only if not already set). Never deletes rows."""
-        _require_aware(now)
+        _require_utc(now)
         now_iso = _iso(now)
         cur = self._conn.cursor()
         if seen_job_ids:
@@ -372,7 +410,7 @@ class JobStore:
         record()'s own decision tree already can't hand a job with an
         existing row a NEW verdict, so this is the only enforcement point
         actually needed."""
-        _require_aware(now)
+        _require_utc(now)
         cutoff_iso = _iso(now - timedelta(days=self._ghost_stale_after_days))
         cur = self._conn.cursor()
         cur.execute(
@@ -390,7 +428,7 @@ class JobStore:
         # returned zero (fetch_raw() raises SourceEmptyError on that, before
         # this is ever called). Accepted here so the caller doesn't need a
         # special case to report a successful fetch.
-        _require_aware(now)
+        _require_utc(now)
         now_iso = _iso(now)
         self._conn.execute(
             """
@@ -405,7 +443,7 @@ class JobStore:
         self._conn.commit()
 
     def record_failure(self, source: str, company: str, error: str, now: datetime) -> None:
-        _require_aware(now)
+        _require_utc(now)
         now_iso = _iso(now)
         self._conn.execute(
             """
@@ -426,7 +464,7 @@ class JobStore:
         # signature (like JobSource.fetch_raw()'s etag) so a future
         # time-based criterion (e.g. "and no success in N days") doesn't
         # need an interface change.
-        _require_aware(now)
+        _require_utc(now)
         rows = self._conn.execute(
             "SELECT source, company, consecutive_failures FROM source_health "
             "WHERE consecutive_failures >= ?",

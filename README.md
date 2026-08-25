@@ -12,8 +12,11 @@ The project's non-negotiables, architecture, and milestone plan live in
 - **M0/M1** — done: `Job` model, company/settings config loading, the
   Greenhouse ATS adapter.
 - **M2** — done: the `filters.yaml`-driven filter engine.
-- Everything after that (store, Discord publisher, orchestration, discovery)
-  is not built yet.
+- **M3** — done: the SQLite state store (dedup, seed mode, resurrection,
+  ghost detection).
+- **M4** — done: the Discord webhook publisher.
+- Everything after that (orchestration, discovery, more ATS adapters) is not
+  built yet.
 
 ## Quickstart
 
@@ -36,3 +39,17 @@ Nothing you'd want to change lives in code:
   or change what you're searching for; `jobbot/` itself contains no
   hardcoded city, keyword, or search term (enforced by
   `test_no_hardcoded_search_terms`).
+
+Secrets never live in yaml — they come from the environment only (a `.env`
+file works too; it's git-ignored):
+
+- `JOBBOT_DISCORD_WEBHOOK_URL` — **required** to actually publish. The
+  webhook URL for the Discord channel jobs get posted to.
+- `JOBBOT_DISCORD_ERROR_WEBHOOK_URL` — **optional**. A separate webhook for
+  operational error messages (e.g. a source repeatedly failing), so failures
+  don't get lost in the same channel as job postings. Falls back to not
+  reporting errors to Discord at all if unset.
+
+Nothing in `jobbot/` reads either of these directly (`jobbot/publisher.py`
+takes a webhook URL as a plain argument) — wiring them from the environment
+into a running bot is the orchestrator's (M5) job.

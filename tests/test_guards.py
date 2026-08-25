@@ -35,5 +35,10 @@ def test_respx_mocked_httpx_still_works_under_the_guard() -> None:
         respx.get("https://example.invalid/ping").mock(
             return_value=httpx.Response(200, json={"ok": True})
         )
-        response = httpx.get("https://example.invalid/ping")
+        # verify=False: no real TLS handshake happens here regardless (respx
+        # intercepts at the transport layer); httpx.get()'s default client
+        # would otherwise pay ~0.5-1s for its default SSLContext/CA-bundle
+        # setup on this machine, see the note in tests/test_greenhouse.py.
+        with httpx.Client(verify=False) as client:
+            response = client.get("https://example.invalid/ping")
     assert response.json() == {"ok": True}

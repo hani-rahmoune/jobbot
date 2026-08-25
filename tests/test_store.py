@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import sqlite3
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from jobbot.models import Job
-from jobbot.store import JobStore, JobVerdict, _row_to_job, is_publishable
+from jobbot.store import SCHEMA_VERSION, JobStore, JobVerdict, _row_to_job, is_publishable
 
 BASE = datetime(2024, 1, 1, tzinfo=UTC)
 
@@ -47,6 +48,73 @@ def test_now_must_be_timezone_aware() -> None:
     with JobStore(":memory:") as store, pytest.raises(ValueError):
         naive = datetime(2024, 1, 1)  # noqa: DTZ001 -- deliberately naive, that's the point
         store.record(_make_job(), naive)
+
+
+def test_now_must_be_utc_not_merely_aware() -> None:
+    # A2: aware but +02:00 must be rejected, not just "has a tzinfo".
+    with JobStore(":memory:") as store, pytest.raises(ValueError):
+        plus_two = datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=2)))
+        store.record(_make_job(), plus_two)
+
+
+_V1_SCHEMA = """
+CREATE TABLE schema_version (version INTEGER NOT NULL);
+CREATE TABLE jobs (
+    job_id TEXT PRIMARY KEY,
+    content_fingerprint TEXT NOT NULL,
+    company TEXT NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT,
+    title TEXT NOT NULL,
+    location TEXT NOT NULL,
+    contract_type TEXT NOT NULL,
+    url TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source_posted_at TEXT,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    published_at TEXT,
+    disappeared_at TEXT,
+    is_stale INTEGER NOT NULL DEFAULT 0,
+    last_verdict TEXT NOT NULL
+);
+CREATE TABLE fingerprints (
+    content_fingerprint TEXT PRIMARY KEY,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    origin_job_id TEXT NOT NULL
+);
+CREATE TABLE source_health (
+    source TEXT NOT NULL,
+    company TEXT NOT NULL,
+    last_success_at TEXT,
+    last_failure_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    PRIMARY KEY (source, company)
+);
+"""
+
+
+def test_opening_a_v1_database_migrates_it_to_v2(tmp_path: Path) -> None:
+    path = tmp_path / "v1.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_V1_SCHEMA)
+    conn.execute("INSERT INTO schema_version (version) VALUES (1)")
+    conn.commit()
+    conn.close()
+
+    with JobStore(path) as store:
+        assert SCHEMA_VERSION == 2
+        row = store._conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == 2
+
+        # publish_pending exists and defaults to 0 -- no error, no NULLs.
+        store.record(_make_job(), BASE)
+        job_row = store._conn.execute(
+            "SELECT publish_pending FROM jobs LIMIT 1"
+        ).fetchone()
+        assert job_row["publish_pending"] == 1
 
 
 # --- round-trip ----------------------------------------------------------
@@ -208,6 +276,79 @@ def test_mark_published_removes_job_from_unpublished_new() -> None:
             "SELECT published_at FROM jobs WHERE job_id = ?", (job.job_id,)
         ).fetchone()
         assert row["published_at"] == (BASE + timedelta(hours=1)).isoformat()
+
+
+# --- A1, load bearing: a NEW job must survive an unpublished poll cycle ----
+
+
+def test_a_new_job_survives_an_unpublished_poll_cycle() -> None:
+    """Load bearing. Trace this failing without the fix: record() returns
+    NEW, the publisher then fails to send it, the next poll re-records the
+    same unchanged job as KNOWN, and unpublished_new() must still return it
+    -- publish_pending, not last_verdict, is what unpublished_new() trusts.
+    """
+    with JobStore(":memory:") as store:
+        job = _make_job()
+        assert store.record(job, BASE) == JobVerdict.NEW
+
+        # Next poll cycle, publisher never got to send it: unchanged re-fetch.
+        assert store.record(job, BASE + timedelta(minutes=20)) == JobVerdict.KNOWN
+
+        unpublished = store.unpublished_new()
+        assert len(unpublished) == 1
+        assert unpublished[0].job_id == job.job_id
+
+
+def test_new_job_survives_a_bump_in_between() -> None:
+    with JobStore(":memory:") as store:
+        job = _make_job(posted_at=BASE)
+        assert store.record(job, BASE) == JobVerdict.NEW
+
+        bumped = _make_job(posted_at=BASE + timedelta(days=1))
+        assert job.job_id == bumped.job_id
+        assert store.record(bumped, BASE + timedelta(days=1)) == JobVerdict.BUMP
+
+        unpublished = store.unpublished_new()
+        assert len(unpublished) == 1
+        assert unpublished[0].job_id == job.job_id
+
+
+def test_new_job_survives_five_consecutive_known_polls() -> None:
+    with JobStore(":memory:") as store:
+        job = _make_job()
+        assert store.record(job, BASE) == JobVerdict.NEW
+
+        for i in range(1, 6):
+            assert store.record(job, BASE + timedelta(minutes=20 * i)) == JobVerdict.KNOWN
+
+        unpublished = store.unpublished_new()
+        assert len(unpublished) == 1
+        assert unpublished[0].job_id == job.job_id
+
+
+def test_mark_published_clears_pending_and_it_does_not_return() -> None:
+    with JobStore(":memory:") as store:
+        job = _make_job()
+        store.record(job, BASE)
+        store.mark_published(job.job_id, BASE + timedelta(minutes=1))
+        assert store.unpublished_new() == []
+
+        # Next poll cycle: still gone, publish_pending stays cleared.
+        store.record(job, BASE + timedelta(minutes=20))
+        assert store.unpublished_new() == []
+
+
+# --- A3: unpublished_new() excludes disappeared jobs -----------------------
+
+
+def test_unpublished_new_excludes_jobs_with_disappeared_at_set() -> None:
+    with JobStore(":memory:") as store:
+        job = _make_job()
+        store.record(job, BASE)
+        assert len(store.unpublished_new()) == 1
+
+        store.mark_absent("greenhouse", "Acme Corp", set(), BASE + timedelta(hours=1))
+        assert store.unpublished_new() == []
 
 
 # --- presence / staleness ------------------------------------------------
