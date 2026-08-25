@@ -1,0 +1,24 @@
+# Runtime settings. Values here are defaults; any key can be overridden with
+# an env var prefixed JOBBOT_, e.g. JOBBOT_POLL_INTERVAL_MINUTES=30.
+
+poll_interval_minutes: 20
+seed_mode: false
+
+# Sent in every adapter's User-Agent header so an ATS operator has a way to
+# reach us if our polling ever causes them trouble. Replace with your own
+# contact (an email or a URL to a repo/issue tracker) before running this
+# for real — do not commit a real personal address.
+user_agent_contact: "https://github.com/hani-rahmoune/jobbot/issues"
+fail_on_empty_source: true
+allowed_tier2_sources: []
+
+# M3 state-store windows (see jobbot/store.py's JobVerdict docstring):
+# - repost_window_days: a new posting whose content matches one seen within
+#   this many days is a REPOST, not a fresh NEW.
+# - resurrection_window_days: a known job absent longer than this many days
+#   before reappearing is a RESURRECTION, not a plain re-sighting.
+# - ghost_stale_after_days: a job first seen this many days ago is flagged
+#   stale and excluded from anything that could still publish it.
+repost_window_days: 180
+resurrection_window_days: 7
+ghost_stale_after_days: 90

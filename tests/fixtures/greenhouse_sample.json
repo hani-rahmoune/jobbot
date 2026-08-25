@@ -1,0 +1,68 @@
+{
+  "jobs": [
+    {
+      "id": 1001,
+      "title": "Développeur Full-Stack en Alternance",
+      "updated_at": "2024-01-10T09:00:00-05:00",
+      "location": { "name": "Paris, France" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1001",
+      "departments": [],
+      "offices": [],
+      "content": "<p>Rejoignez Acme Corp dans le cadre d'une alternance de douze mois au sein de notre équipe technique basée à Paris. Vous participerez au développement de nouvelles fonctionnalités, à la maintenance de nos services existants et à l'amélioration continue de notre infrastructure. Vous travaillerez en étroite collaboration avec des ingénieurs expérimentés, des designers et des chefs de produit dans un environnement agile. Nous recherchons une personne curieuse, rigoureuse et motivée pour apprendre, capable de s'investir pleinement dans un cursus en alternance et de contribuer activement aux projets de l'équipe tout au long de l'année scolaire. Merci de votre candidature.</p>"
+    },
+    {
+      "id": 1002,
+      "title": "Stagiaire Data Analyst",
+      "updated_at": "2024-01-11T09:00:00-05:00",
+      "location": { "name": "Lyon, France" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1002",
+      "content": "<p>Nous recherchons un stagiaire pour une durée de 6 mois afin de renforcer notre équipe analytique.</p>"
+    },
+    {
+      "id": 1003,
+      "title": "Software Engineering Intern",
+      "updated_at": "2024-01-12T09:00:00-05:00",
+      "location": { "name": "Remote" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1003",
+      "content": "<p>Join us as a summer intern on the platform team, working alongside senior engineers.</p>"
+    },
+    {
+      "id": 1004,
+      "title": "Senior Backend Engineer",
+      "updated_at": "2024-01-13T09:00:00-05:00",
+      "location": { "name": "Berlin, Germany" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1004",
+      "content": "<p>We are looking for a senior full-time engineer to lead our backend team and mentor others.</p>"
+    },
+    {
+      "id": 1005,
+      "title": "Apprenti Développeur Mobile",
+      "updated_at": "2024-01-14T09:00:00-05:00",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1005",
+      "content": "<p>Poste en apprentissage d'un an, aucune localisation renseignée pour le moment.</p>"
+    },
+    {
+      "id": 1006,
+      "title": "Stage Marketing Digital",
+      "updated_at": "2024-01-15T09:00:00-05:00",
+      "location": { "name": "Marseille, France" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1006",
+      "content": "<div><p>Missions &amp; responsabilit&eacute;s:</p><ul><li>Analyse de donn&eacute;es</li><li>Reporting &lt;hebdomadaire&gt;</li></ul><p>Salaire: 800&euro;/mois</p></div>"
+    },
+    {
+      "id": 1007,
+      "updated_at": "2024-01-16T09:00:00-05:00",
+      "location": { "name": "Toulouse, France" },
+      "content": "<p>Cette entrée est volontairement incomplète: il manque title et absolute_url.</p>"
+    },
+    {
+      "id": 1008,
+      "title": "Développeur Full-Stack en Alternance",
+      "updated_at": "2024-03-02T09:00:00-05:00",
+      "location": { "name": "Paris, France" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1008-reposted",
+      "content": "<p>Rejoignez Acme Corp dans le cadre d'une alternance de douze mois au sein de notre équipe technique basée à Paris. Vous participerez au développement de nouvelles fonctionnalités, à la maintenance de nos services existants et à l'amélioration continue de notre infrastructure. Vous travaillerez en étroite collaboration avec des ingénieurs expérimentés, des designers et des chefs de produit dans un environnement agile. Nous recherchons une personne curieuse, rigoureuse et motivée pour apprendre, capable de s'investir pleinement dans un cursus en alternance et de contribuer activement aux projets de l'équipe tout au long de l'année scolaire. Cette offre est ouverte à tous, conformément à notre politique de diversité et d'inclusion, au-delà des mentions légales habituelles.</p>"
+    }
+  ],
+  "meta": { "total": 8 }
+}

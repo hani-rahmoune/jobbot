@@ -1,0 +1,57 @@
+# Greenhouse board tokens: how to find one
+# ------------------------------------------
+# A Greenhouse-hosted careers page URL looks like one of:
+#   https://boards.greenhouse.io/<token>
+#   https://job-boards.greenhouse.io/<token>
+# `<token>` is what goes in `identifier` below, and is what the adapter
+# plugs into https://boards-api.greenhouse.io/v1/boards/<token>/jobs.
+#
+# If a company embeds Greenhouse on their own domain instead (e.g.
+# careers.example.com/jobs), open browser devtools -> Network while the job
+# list loads and look for a request to:
+#   https://boards-api.greenhouse.io/v1/boards/<token>/jobs?content=true
+# `<token>` there is the identifier. View-source works too: search the page
+# for "greenhouse.io" and the token is the path segment right after it.
+#
+# `tier: hot` = companies to poll most frequently (see settings.yaml). Unused
+# by anything until M9, but validated now so this file doesn't need
+# rewriting later.
+
+- name: Algolia
+  ats: greenhouse
+  identifier: algolia
+  tier: hot
+  tags: []
+
+- name: Datadog
+  ats: greenhouse
+  identifier: datadog
+  tier: hot
+  tags: []
+
+- name: GitLab
+  ats: greenhouse
+  identifier: gitlab
+  tier: hot
+  tags: []
+
+- name: Figma
+  ats: greenhouse
+  identifier: figma
+  tier: hot
+  tags: []
+
+- name: Aircall
+  ats: greenhouse
+  identifier: aircallioinc
+  tier: hot
+  tags: []
+
+# Disabled on purpose: exercises load_companies() filtering out
+# enabled: false entries. Flip to true to start polling it.
+- name: Discord
+  ats: greenhouse
+  identifier: discord
+  tier: hot
+  enabled: false
+  tags: []

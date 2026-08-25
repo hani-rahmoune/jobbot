@@ -1,0 +1,22 @@
+# Location and keyword preferences. Edit this file to relocate or change
+# what you're searching for -- jobbot/ itself contains no hardcoded city,
+# region, department code, or keyword (see CLAUDE.md rule 4 and
+# test_no_hardcoded_search_terms).
+
+locations:
+  include: [paris, ile-de-france, "75", "92", "93", "94", nantes, "44",
+            loire-atlantique, remote, teletravail, hybride]
+  exclude: [lyon, marseille, bordeaux, toulouse]
+  match_mode: substring        # substring | word
+  unknown_location: keep       # keep | drop, applies when location is ""
+
+contract_types: [internship, apprenticeship]
+
+keywords:
+  include: [data, donnees, machine learning, deep learning, ia, ai, llm,
+            nlp, analytics, statistiques, python, sql, data science,
+            data engineer, mlops, computer vision]
+  exclude: [sales, commercial, vente, recrutement]
+  match_mode: word             # word | substring
+  fields: [title, description]
+  require: any                 # any | all, across the include list
