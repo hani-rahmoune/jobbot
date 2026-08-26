@@ -14,10 +14,12 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 # The set of ATS adapters this codebase actually implements. Grown one entry
-# at a time as adapters land (M1: greenhouse). An identifier not in this set
-# is a config typo or an ATS we haven't built, either way it's an error, not
-# a silent skip.
-KNOWN_ATS = frozenset({"greenhouse"})
+# at a time as adapters land (M1: greenhouse; M6: lever, ashby, jsonld --
+# Taleez was investigated for M6 but requires an API key, see companies
+# README/M6 report, so no "taleez" adapter exists to register here). An
+# identifier not in this set is a config typo or an ATS we haven't built,
+# either way it's an error, not a silent skip.
+KNOWN_ATS = frozenset({"greenhouse", "lever", "ashby", "jsonld"})
 
 
 class ConfigError(Exception):

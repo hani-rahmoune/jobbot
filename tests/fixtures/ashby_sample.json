@@ -1,0 +1,56 @@
+{
+  "jobs": [
+    {
+      "id": "d457e0f1-2418-4759-b4ed-e41fdff50bf0",
+      "title": "CTO Founder Associate - internship",
+      "location": "Paris, France",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/d457e0f1-2418-4759-b4ed-e41fdff50bf0",
+      "publishedAt": "2026-08-03T08:33:52.099+00:00",
+      "employmentType": "Intern",
+      "descriptionPlain": "HEALTH CAN’T WAIT. \n\nNot for symptoms to get worse. Not for a six‑month appointment. Not for a system to catch up. But that’s exactly how healthcare works today. You wait, until you can’t.\n\nAlan exists to end the wait.\n\nHealth is a universal right, a"
+    },
+    {
+      "id": "de4c30ae-698f-43e9-84d1-f458955fd671",
+      "title": "Software Engineer Internship (6 months)",
+      "location": "Paris",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/de4c30ae-698f-43e9-84d1-f458955fd671",
+      "publishedAt": "2026-04-27T15:12:55.254+00:00",
+      "employmentType": "Intern",
+      "descriptionPlain": "HEALTH CAN’T WAIT. \n\nNot for symptoms to get worse. Not for a six‑month appointment. Not for a system to catch up. But that’s exactly how healthcare works today. You wait, until you can’t.\n\nAlan exists to end the wait.\n\nHealth is a universal right, a"
+    },
+    {
+      "id": "118f5ad8-5db5-48ec-940e-1a880b148f25",
+      "title": "Data Full Stack",
+      "location": "Paris, France",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/118f5ad8-5db5-48ec-940e-1a880b148f25",
+      "publishedAt": "2026-06-16T16:55:05.029+00:00",
+      "employmentType": "FullTime",
+      "descriptionPlain": "HEALTH CAN’T WAIT. \n\nNot for symptoms to get worse. Not for a six‑month appointment. Not for a system to catch up. But that’s exactly how healthcare works today. You wait, until you can’t.\n\nAlan exists to end the wait.\n\nHealth is a universal right, a"
+    },
+    {
+      "id": "synthetic-0001",
+      "title": "Data Science Intern - Remote",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/synthetic-0001",
+      "publishedAt": "2026-01-15T09:00:00.000+00:00",
+      "employmentType": "Intern",
+      "descriptionPlain": "Added for test coverage: employmentType present but the location key is absent entirely, must become an empty string rather than crash."
+    },
+    {
+      "id": "synthetic-0002",
+      "title": "Growth Marketing Manager",
+      "location": "Paris, France",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/synthetic-0002",
+      "publishedAt": "2026-02-01T09:00:00.000+00:00",
+      "employmentType": "FullTime",
+      "descriptionHtml": "<p>Added for test coverage: only descriptionHtml is present, no descriptionPlain, exercising the HTML-stripping fallback path.</p>"
+    },
+    {
+      "id": "synthetic-0003",
+      "location": "Paris, France",
+      "jobUrl": "https://jobs.ashbyhq.com/alan/synthetic-0003",
+      "publishedAt": "2026-02-01T09:00:00.000+00:00",
+      "employmentType": "FullTime",
+      "descriptionPlain": "Added for test coverage: missing the required 'title' field entirely, must be skipped with a logged warning, not crash the batch."
+    }
+  ]
+}

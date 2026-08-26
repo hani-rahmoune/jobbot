@@ -50,6 +50,19 @@ def greenhouse_payload() -> dict[str, Any]:
     return json.loads((FIXTURES_DIR / "greenhouse_sample.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture
+def lever_payload() -> list[dict[str, Any]]:
+    """The full mocked API response: a JSON array directly (Lever's own
+    shape, not wrapped in an object)."""
+    return json.loads((FIXTURES_DIR / "lever_sample.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def ashby_payload() -> dict[str, Any]:
+    """The full mocked API response: {"jobs": [...]}."""
+    return json.loads((FIXTURES_DIR / "ashby_sample.json").read_text(encoding="utf-8"))
+
+
 @pytest.fixture(scope="session")
 def mock_client() -> httpx.Client:
     """One httpx.Client shared by the whole test session. respx replaces the

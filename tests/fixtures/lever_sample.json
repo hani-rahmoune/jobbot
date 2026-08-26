@@ -1,0 +1,73 @@
+[
+  {
+    "id": "e1c3f84d-0ddd-40a6-bd13-b03285db8296",
+    "text": "Internal Control Apprentice (Tech & Product)",
+    "categories": {
+      "commitment": "Apprenticeship",
+      "department": "Corporate & Middle Office",
+      "location": "Paris",
+      "team": "Risk & Compliance"
+    },
+    "createdAt": 1783327839687,
+    "hostedUrl": "https://jobs.lever.co/qonto/e1c3f84d-0ddd-40a6-bd13-b03285db8296",
+    "descriptionPlain": "Our mission and customers: We are creating the freedom for SMEs to succeed by delivering Europe's leading finance workspace with banking at its core, augmented by financial tools. We are proud to be rated 4.8 on Trustpilot, based on 55,000+ reviews."
+  },
+  {
+    "id": "ba688ab4-66b1-4d6a-9aa7-537e191ea392",
+    "text": "Legal Intern - Commercial",
+    "categories": {
+      "commitment": "Internship",
+      "department": "Corporate & Middle Office",
+      "location": "Paris",
+      "team": "Legal"
+    },
+    "createdAt": 1787575151503,
+    "hostedUrl": "https://jobs.lever.co/qonto/ba688ab4-66b1-4d6a-9aa7-537e191ea392",
+    "descriptionPlain": "Our mission and customers: We are creating the freedom for SMEs to succeed by delivering Europe's leading finance workspace with banking at its core, augmented by financial tools. We are proud to be rated 4.8 on Trustpilot, based on 55,000+ reviews."
+  },
+  {
+    "id": "354fa50e-2741-4936-82f5-0d1ce5fb8be3",
+    "text": "Legal Intern - Product & AI",
+    "categories": {
+      "department": "Corporate & Middle Office",
+      "location": "Paris",
+      "team": "Legal"
+    },
+    "createdAt": 1787575314260,
+    "hostedUrl": "https://jobs.lever.co/qonto/354fa50e-2741-4936-82f5-0d1ce5fb8be3",
+    "descriptionPlain": "Our mission and customers: We are creating the freedom for SMEs to succeed by delivering Europe's leading finance workspace with banking at its core, augmented by financial tools. We are proud to be rated 4.8 on Trustpilot, based on 55,000+ reviews."
+  },
+  {
+    "id": "f84c6c54-b8da-4651-afc5-6b77a4fe34e8",
+    "text": "Senior Analytics Engineer – Data Governance",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Tech & Data",
+      "location": "Paris",
+      "team": "Analytics Engineering"
+    },
+    "createdAt": 1647366301010,
+    "hostedUrl": "https://jobs.lever.co/qonto/f84c6c54-b8da-4651-afc5-6b77a4fe34e8",
+    "descriptionPlain": "Our mission and customers: We are creating the freedom for SMEs to succeed by delivering Europe's leading finance workspace with banking at its core, augmented by financial tools. We are proud to be rated 4.8 on Trustpilot, based on 55,000+ reviews."
+  },
+  {
+    "id": "synthetic-0001",
+    "text": "Stagiaire Data Analyst - Remote",
+    "categories": {
+      "commitment": "Internship",
+      "department": "Data"
+    },
+    "hostedUrl": "https://jobs.lever.co/qonto/synthetic-0001",
+    "descriptionPlain": "Added for test coverage: categories present but with no location key at all, must become an empty string rather than crash."
+  },
+  {
+    "id": "synthetic-0002",
+    "categories": {
+      "commitment": "Full-time",
+      "location": "Paris"
+    },
+    "createdAt": 1700000000000,
+    "hostedUrl": "https://jobs.lever.co/qonto/synthetic-0002",
+    "descriptionPlain": "Added for test coverage: missing the required 'text' (title) field entirely, must be skipped with a logged warning, not crash the batch."
+  }
+]

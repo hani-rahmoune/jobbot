@@ -40,12 +40,15 @@ from jobbot.filters import FilterConfigError, JobFilter, load_filters
 from jobbot.models import Job
 from jobbot.publisher import DiscordPublisher
 from jobbot.settings import SettingsError, load_settings
-from jobbot.sources.base import JobSource, SourceError, registered_sources
 
-# Imported for its side effect: defining GreenhouseSource registers it (see
-# sources/base.py's __init_subclass__), which is what makes it visible to
-# build_source() below. Add new adapter imports here as they land (M6+).
+# Imported for its side effect: defining a JobSource subclass registers it
+# (see sources/base.py's __init_subclass__), which is what makes it visible
+# to build_source() below. Add new adapter imports here as they land.
+from jobbot.sources.ashby import AshbySource  # noqa: F401
+from jobbot.sources.base import JobSource, SourceError, registered_sources
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
+from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
+from jobbot.sources.lever import LeverSource  # noqa: F401
 from jobbot.store import JobStore, is_publishable
 
 logger = logging.getLogger(__name__)

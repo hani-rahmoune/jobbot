@@ -30,11 +30,14 @@ def test_disabled_entries_are_filtered_out(tmp_path: Path) -> None:
 
 
 def test_unknown_ats_raises(tmp_path: Path) -> None:
+    # "lever" was this test's original choice, back when only Greenhouse was
+    # a KNOWN_ATS; M6 made it a real one, so it no longer demonstrates
+    # "unknown" -- use a name that will never be one instead.
     file = _write(
         tmp_path / "companies.yaml",
         """
 - name: Some Co
-  ats: lever
+  ats: totally-unregistered-ats
   identifier: some-co
 """,
     )

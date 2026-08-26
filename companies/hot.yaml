@@ -17,34 +17,38 @@
 # by anything until M9, but validated now so this file doesn't need
 # rewriting later.
 
+# M6: these five produced zero matches on a live run -- none is a French
+# company, so nothing here will ever match a Paris/Nantes-focused user. Kept
+# (not deleted) as known-good adapter smoke-test entries, demoted to warm so
+# they're polled far less often than the French tier: hot entries below.
 - name: Algolia
   ats: greenhouse
   identifier: algolia
-  tier: hot
+  tier: warm
   tags: []
 
 - name: Datadog
   ats: greenhouse
   identifier: datadog
-  tier: hot
+  tier: warm
   tags: []
 
 - name: GitLab
   ats: greenhouse
   identifier: gitlab
-  tier: hot
+  tier: warm
   tags: []
 
 - name: Figma
   ats: greenhouse
   identifier: figma
-  tier: hot
+  tier: warm
   tags: []
 
 - name: Aircall
   ats: greenhouse
   identifier: aircallioinc
-  tier: hot
+  tier: warm
   tags: []
 
 # Disabled on purpose: exercises load_companies() filtering out
@@ -55,3 +59,60 @@
   tier: hot
   enabled: false
   tags: []
+
+# --- French companies (M6 F3) ------------------------------------------
+#
+# Every entry below was verified live before being added: identifier
+# confirmed to resolve on its adapter's real endpoint and return at least
+# one posting, headcount and French HQ confirmed via public sources
+# (SIRENE/pappers.fr registration, funding-round press coverage, or the
+# postings' own locations/language). See the M6 report for the full
+# verification table, including tokens that were tried and rejected
+# (wrong company entirely, non-French, or over the ~500-person ceiling).
+#
+# All Paris-based: despite a dedicated search pass for Nantes/Loire-
+# Atlantique tech and data companies across all three adapters, none
+# surfaced a working Greenhouse/Lever/Ashby board. Flagged in the M6
+# report rather than papered over with an unverified entry.
+
+- name: Illuin Technology
+  ats: ashby
+  identifier: illuin
+  tier: hot
+  tags: [ai, data, consulting, paris]
+
+- name: Akur8
+  ats: ashby
+  identifier: akur8
+  tier: hot
+  tags: [insurtech, data, actuarial, paris]
+
+- name: Inato
+  ats: ashby
+  identifier: inato
+  tier: hot
+  tags: [healthtech, data, ai, paris]
+
+- name: Lifen
+  ats: ashby
+  identifier: lifen
+  tier: hot
+  tags: [healthtech, data, paris]
+
+- name: Dust
+  ats: ashby
+  identifier: dust
+  tier: hot
+  tags: [ai, genai, paris]
+
+- name: H Company
+  ats: ashby
+  identifier: hcompany
+  tier: hot
+  tags: [ai, agents, paris]
+
+- name: Photoroom
+  ats: ashby
+  identifier: photoroom
+  tier: hot
+  tags: [ai, computer-vision, paris]

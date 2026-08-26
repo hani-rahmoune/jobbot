@@ -13,9 +13,10 @@ locations:
 contract_types: [internship, apprenticeship]
 
 keywords:
-  include: [data, donnees, machine learning, deep learning, ia, ai, llm,
-            nlp, analytics, statistiques, python, sql, data science,
-            data engineer, mlops, computer vision]
+  include: [data, donnees, analyste, statistiques, statistique, etudes,
+            machine learning, deep learning, ia, ai, llm, nlp, analytics,
+            python, sql, data science, data engineer, mlops,
+            computer vision, decisionnel, bi, big data]
   exclude: [sales, commercial, vente, recrutement, recruiting, recruiter,
             talent, account executive, customer success, marketing]
   match_mode: word             # word | substring

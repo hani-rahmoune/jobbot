@@ -1,18 +1,18 @@
-"""Greenhouse Job Board API adapter.
+"""Lever Postings API adapter.
 
-Greenhouse is an ATS product employers embed on their own careers page; the
-public `boards-api.greenhouse.io` endpoint used here serves exactly the
-postings that employer has published, first-party per CLAUDE.md rule 2.
+Lever is an ATS product employers embed on their own careers page; the
+public `api.lever.co` endpoint used here serves exactly the postings that
+employer has published, first-party per CLAUDE.md rule 2.
 
-GET https://boards-api.greenhouse.io/v1/boards/{identifier}/jobs?content=true
-returns every open posting for one company's board in a single response —
-`identifier` is that company's board token (see companies/hot.yaml for how to
-find one from a careers page URL).
+GET https://api.lever.co/v0/postings/{identifier}?mode=json returns every
+open posting for one company's board as a JSON array directly -- unlike
+Greenhouse, there's no wrapping object with a "jobs" key.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 
@@ -23,13 +23,19 @@ from jobbot.sources.html_text import strip_html
 
 logger = logging.getLogger(__name__)
 
-BOARD_URL_TEMPLATE = "https://boards-api.greenhouse.io/v1/boards/{identifier}/jobs?content=true"
+BOARD_URL_TEMPLATE = "https://api.lever.co/v0/postings/{identifier}?mode=json"
 TIMEOUT_SECONDS = 15.0
 MAX_ATTEMPTS = 2  # one request, one retry on 5xx/timeout
 
 
-class GreenhouseSource(JobSource):
-    name = "greenhouse"
+def _epoch_millis_to_utc(value: object) -> datetime | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return datetime.fromtimestamp(value / 1000, tz=UTC)
+
+
+class LeverSource(JobSource):
+    name = "lever"
     tier = 1
     first_party = True
 
@@ -48,18 +54,17 @@ class GreenhouseSource(JobSource):
             except httpx.TimeoutException as exc:
                 error = exc
                 logger.warning(
-                    "greenhouse: timeout fetching %s for %s (attempt %d/%d)",
+                    "lever: timeout fetching %s for %s (attempt %d/%d)",
                     url, self.company_name, attempt, MAX_ATTEMPTS,
                 )
                 continue
 
             if response.status_code >= 500:
                 error = SourceError(
-                    f"greenhouse: {self.company_name} ({url}) returned "
-                    f"HTTP {response.status_code}"
+                    f"lever: {self.company_name} ({url}) returned HTTP {response.status_code}"
                 )
                 logger.warning(
-                    "greenhouse: HTTP %d fetching %s for %s (attempt %d/%d)",
+                    "lever: HTTP %d fetching %s for %s (attempt %d/%d)",
                     response.status_code, url, self.company_name, attempt, MAX_ATTEMPTS,
                 )
                 continue
@@ -69,30 +74,27 @@ class GreenhouseSource(JobSource):
 
         if error is not None:
             raise SourceError(
-                f"greenhouse: failed to fetch {url} for {self.company_name} "
+                f"lever: failed to fetch {url} for {self.company_name} "
                 f"after {MAX_ATTEMPTS} attempts"
             ) from error
 
-        # Never let an httpx exception (e.g. HTTPStatusError from
-        # raise_for_status()) escape this method -- every failure mode here
-        # is one of our own SourceError subclasses.
+        # Never let an httpx exception escape this method -- every failure
+        # mode here is one of our own SourceError subclasses.
         if response.status_code == 404:
             raise SourceNotFoundError(
-                f"greenhouse: board not found for {self.company_name} "
+                f"lever: board not found for {self.company_name} "
                 f"({self.identifier}): {url} returned 404"
             )
         if response.status_code >= 400:
             raise SourceError(
-                f"greenhouse: {self.company_name} ({url}) returned "
-                f"HTTP {response.status_code}"
+                f"lever: {self.company_name} ({url}) returned HTTP {response.status_code}"
             )
 
-        payload = response.json()
-        jobs = payload.get("jobs", [])
+        jobs = response.json()  # the response IS the array, no wrapping object
 
         if not jobs:
             raise SourceEmptyError(
-                f"greenhouse: {self.company_name} ({self.identifier}) returned zero jobs"
+                f"lever: {self.company_name} ({self.identifier}) returned zero jobs"
             )
 
         return jobs, None
@@ -104,17 +106,22 @@ class GreenhouseSource(JobSource):
                 jobs.append(self._parse_entry(entry))
             except (KeyError, TypeError, ValueError) as exc:
                 logger.warning(
-                    "greenhouse: skipping malformed entry for %s: %s", self.company_name, exc
+                    "lever: skipping malformed entry for %s: %s", self.company_name, exc
                 )
         return jobs
 
     def _parse_entry(self, entry: dict) -> Job:
         external_id = entry["id"]
-        title = entry["title"]
-        url = entry["absolute_url"]
-        location = ((entry.get("location") or {}).get("name")) or ""
-        description = strip_html(entry.get("content") or "")
-        contract_type = classify_contract_type(title, description)
+        title = entry["text"]
+        url = entry["hostedUrl"]
+        categories = entry.get("categories") or {}
+        location = categories.get("location") or ""
+        employment_hint = categories.get("commitment") or ""
+        description_plain = entry.get("descriptionPlain")
+        description = (
+            description_plain if description_plain else strip_html(entry.get("description") or "")
+        )
+        contract_type = classify_contract_type(title, description, employment_hint)
 
         return Job(
             company=self.company_name,
@@ -122,7 +129,7 @@ class GreenhouseSource(JobSource):
             location=location,
             contract_type=contract_type,
             url=url,
-            posted_at=entry.get("updated_at"),
+            posted_at=_epoch_millis_to_utc(entry.get("createdAt")),
             description=description,
             source=self.name,
             external_id=str(external_id),

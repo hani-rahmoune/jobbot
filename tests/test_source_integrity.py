@@ -12,7 +12,7 @@ from jobbot.settings import Settings
 # Importing every adapter module registers its JobSource subclass(es) via
 # JobSource.__init_subclass__ (see jobbot/sources/base.py). Add new adapter
 # imports here as they land.
-from jobbot.sources import greenhouse  # noqa: F401
+from jobbot.sources import ashby, greenhouse, jsonld, lever  # noqa: F401
 from jobbot.sources.base import registered_sources
 
 JOBBOT_ROOT = Path(__file__).resolve().parent.parent / "jobbot"
@@ -39,8 +39,10 @@ FORBIDDEN_LITERALS = (
 )
 
 # Contract-type vocabulary is language detection, not a user search
-# preference (CLAUDE.md rule 4's explicit exemption).
-EXEMPT_FILES = {"greenhouse.py"}
+# preference (CLAUDE.md rule 4's explicit exemption). It lives in
+# classify.py (M6 A1), shared by every adapter -- greenhouse.py itself no
+# longer contains any of it.
+EXEMPT_FILES = {"classify.py"}
 
 
 def _forbidden_pattern(literal: str) -> re.Pattern[str]:

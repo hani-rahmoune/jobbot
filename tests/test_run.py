@@ -269,7 +269,11 @@ def test_new_job_failing_filter_is_not_published_and_never_stored() -> None:
 
 
 def test_build_source_raises_on_unknown_ats(mock_client: httpx.Client) -> None:
-    company = CompanySource(name="Foo", ats="lever", identifier="foo")
+    # "lever" was this placeholder's original choice, back when only
+    # Greenhouse existed; M6 gave it a real registered adapter, so it no
+    # longer demonstrates "no adapter registered" -- use a name that will
+    # never be one instead.
+    company = CompanySource(name="Foo", ats="totally-unregistered-ats", identifier="foo")
     with pytest.raises(ValueError):
         build_source(company, mock_client, "jobbot-test/0.1")
 
