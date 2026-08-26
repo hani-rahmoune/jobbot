@@ -44,11 +44,7 @@ def _make_job(**overrides: object) -> Job:
     return Job(**fields)
 
 
-def _make_publisher(sleep=None) -> DiscordPublisher:
-    # verify=False: respx intercepts at the transport layer, no real TLS ever
-    # happens -- see the note in tests/test_greenhouse.py for why this
-    # matters for the suite's time budget.
-    client = httpx.Client(verify=False)
+def _make_publisher(client: httpx.Client, sleep=None) -> DiscordPublisher:
     kwargs = {} if sleep is None else {"sleep": sleep}
     return DiscordPublisher(client, USER_AGENT, **kwargs)
 
@@ -132,9 +128,9 @@ def test_missing_location_gets_a_placeholder_not_an_empty_field() -> None:
 # --- chunking ----------------------------------------------------------
 
 
-def test_25_jobs_produce_exactly_3_requests_of_10_10_and_5() -> None:
+def test_25_jobs_produce_exactly_3_requests_of_10_10_and_5(mock_client) -> None:
     jobs = [(_make_job(title=f"Role {i}"), []) for i in range(25)]
-    publisher = _make_publisher()
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(204))
@@ -148,7 +144,7 @@ def test_25_jobs_produce_exactly_3_requests_of_10_10_and_5() -> None:
     assert result.failed == []
 
 
-def test_long_descriptions_chunk_by_char_limit_not_only_count() -> None:
+def test_long_descriptions_chunk_by_char_limit_not_only_count(mock_client) -> None:
     # Maxed-out titles plus a long, truncated-to-1024 Keywords field push
     # each embed to ~1.6-1.7k chars, forcing the 6000-char rule to split
     # messages well before the 10-embed count limit would.
@@ -157,7 +153,7 @@ def test_long_descriptions_chunk_by_char_limit_not_only_count() -> None:
         (_make_job(title="A" * 256, description="B" * 2000), many_keywords)
         for _ in range(20)
     ]
-    publisher = _make_publisher()
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(204))
@@ -177,9 +173,9 @@ def test_long_descriptions_chunk_by_char_limit_not_only_count() -> None:
         assert total_chars <= 6000
 
 
-def test_dry_run_makes_zero_requests_and_reports_correct_count() -> None:
+def test_dry_run_makes_zero_requests_and_reports_correct_count(mock_client) -> None:
     jobs = [(_make_job(title=f"Role {i}"), []) for i in range(15)]
-    publisher = _make_publisher()
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(204))
@@ -194,9 +190,9 @@ def test_dry_run_makes_zero_requests_and_reports_correct_count() -> None:
 # --- retries, at the _post() level --------------------------------------
 
 
-def test_429_with_retry_after_sleeps_then_retries_and_succeeds() -> None:
+def test_429_with_retry_after_sleeps_then_retries_and_succeeds(mock_client) -> None:
     fake_sleep = _FakeSleep()
-    publisher = _make_publisher(sleep=fake_sleep)
+    publisher = _make_publisher(mock_client, sleep=fake_sleep)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL)
@@ -211,9 +207,9 @@ def test_429_with_retry_after_sleeps_then_retries_and_succeeds() -> None:
     assert fake_sleep.calls == [1.5]
 
 
-def test_three_consecutive_429s_raise_rate_limited_error() -> None:
+def test_three_consecutive_429s_raise_rate_limited_error(mock_client) -> None:
     fake_sleep = _FakeSleep()
-    publisher = _make_publisher(sleep=fake_sleep)
+    publisher = _make_publisher(mock_client, sleep=fake_sleep)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(
@@ -226,8 +222,8 @@ def test_three_consecutive_429s_raise_rate_limited_error() -> None:
     assert fake_sleep.calls == [0.1, 0.1]
 
 
-def test_500_retries_once_then_succeeds() -> None:
-    publisher = _make_publisher()
+def test_500_retries_once_then_succeeds(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL)
@@ -238,8 +234,8 @@ def test_500_retries_once_then_succeeds() -> None:
     assert route.call_count == 2
 
 
-def test_500_twice_raises_publish_error_after_one_retry() -> None:
-    publisher = _make_publisher()
+def test_500_twice_raises_publish_error_after_one_retry(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(500))
@@ -249,8 +245,8 @@ def test_500_twice_raises_publish_error_after_one_retry() -> None:
     assert route.call_count == 2
 
 
-def test_400_raises_publish_error_with_no_retry() -> None:
-    publisher = _make_publisher()
+def test_400_raises_publish_error_with_no_retry(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(
@@ -265,12 +261,12 @@ def test_400_raises_publish_error_with_no_retry() -> None:
 # --- publish() aggregation -----------------------------------------------
 
 
-def test_partial_failure_reports_right_job_ids_and_does_not_claim_sent() -> None:
+def test_partial_failure_reports_right_job_ids_and_does_not_claim_sent(mock_client) -> None:
     good_jobs = [(_make_job(title=f"Good {i}"), []) for i in range(10)]
     bad_jobs = [(_make_job(title=f"Bad {i}"), []) for i in range(5)]
     all_jobs = good_jobs + bad_jobs  # chunked as [10 good][5 bad]
 
-    publisher = _make_publisher()
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL)
@@ -288,8 +284,8 @@ def test_partial_failure_reports_right_job_ids_and_does_not_claim_sent() -> None
 # --- publish_error() -----------------------------------------------------
 
 
-def test_publish_error_posts_a_single_message() -> None:
-    publisher = _make_publisher()
+def test_publish_error_posts_a_single_message(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         route = respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(204))
@@ -300,16 +296,16 @@ def test_publish_error_posts_a_single_message() -> None:
     assert payload["content"] == "Something broke"
 
 
-def test_publish_error_never_raises_even_on_500() -> None:
-    publisher = _make_publisher()
+def test_publish_error_never_raises_even_on_500(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         respx.post(WEBHOOK_URL).mock(return_value=httpx.Response(500))
         publisher.publish_error(WEBHOOK_URL, "Something broke")  # must not raise
 
 
-def test_publish_error_never_raises_on_a_connection_level_exception() -> None:
-    publisher = _make_publisher()
+def test_publish_error_never_raises_on_a_connection_level_exception(mock_client) -> None:
+    publisher = _make_publisher(mock_client)
 
     with respx.mock:
         respx.post(WEBHOOK_URL).mock(side_effect=httpx.ConnectError("boom"))

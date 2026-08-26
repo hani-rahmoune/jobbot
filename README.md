@@ -15,15 +15,38 @@ The project's non-negotiables, architecture, and milestone plan live in
 - **M3** — done: the SQLite state store (dedup, seed mode, resurrection,
   ghost detection).
 - **M4** — done: the Discord webhook publisher.
-- Everything after that (orchestration, discovery, more ATS adapters) is not
-  built yet.
+- **M5** — done: the orchestrator (`jobbot/run.py`) tying fetch, filter,
+  store, and publish into one runnable command.
+- Everything after that (discovery, more ATS adapters) is not built yet.
 
-## Quickstart
+## Running it
+
+```bash
+uv sync                 # install dependencies into .venv
+uv run python -m jobbot.run --dry-run   # one cycle, zero Discord requests
+uv run python -m jobbot.run --seed      # first-ever run: baseline the board without posting
+uv run python -m jobbot.run             # the real thing (needs JOBBOT_DISCORD_WEBHOOK_URL)
+```
+
+`--help` lists every flag (`--config-dir`, `--filters`, `--settings`,
+`--verbose`). Exit codes: `0` success, `1` every configured source failed
+this cycle, `2` a config/environment problem (e.g. the webhook URL is
+missing and `--dry-run` wasn't passed).
+
+## Quickstart (development)
 
 ```bash
 uv sync                 # install dependencies into .venv
 uv run pytest -v        # run the test suite (offline, no network calls)
 uv run ruff check .     # lint
+```
+
+Coverage isn't collected by default locally (it costs ~30% of runtime, and the
+suite has a five-second budget). CI always runs with it; to check coverage
+yourself:
+
+```bash
+uv run pytest --cov=jobbot --cov-report=term-missing
 ```
 
 ## Configuration

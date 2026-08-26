@@ -50,14 +50,22 @@ def greenhouse_payload() -> dict[str, Any]:
     return json.loads((FIXTURES_DIR / "greenhouse_sample.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture(scope="session")
+def mock_client() -> httpx.Client:
+    """One httpx.Client shared by the whole test session. respx replaces the
+    transport per-test (see the guard note above and test_guards.py), so
+    reusing a single client is safe -- and skips paying httpx's default
+    SSLContext/CA-bundle setup (~0.5-1s on this machine, per Client()
+    constructed with verify=True) once per test instead of once, total.
+    verify=False on top of that: nothing here ever does a real TLS handshake
+    anyway. Never close this client in a test (no `with mock_client:`) --
+    it's shared, and closing it breaks every test after it.
+    """
+    return httpx.Client(verify=False)
+
+
 @pytest.fixture
-def greenhouse_source():
+def greenhouse_source(mock_client: httpx.Client):
     from jobbot.sources.greenhouse import GreenhouseSource
 
-    # verify=False: nothing here ever does a real TLS handshake (respx
-    # intercepts at the transport layer, and parse() doesn't touch the
-    # network at all), and skipping it avoids httpx's default
-    # SSLContext/CA-bundle setup -- see the note in test_greenhouse.py.
-    return GreenhouseSource(
-        "acme", "Acme Corp", httpx.Client(verify=False), user_agent=TEST_USER_AGENT
-    )
+    return GreenhouseSource("acme", "Acme Corp", mock_client, user_agent=TEST_USER_AGENT)

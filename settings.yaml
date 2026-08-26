@@ -22,3 +22,8 @@ allowed_tier2_sources: []
 repost_window_days: 180
 resurrection_window_days: 7
 ghost_stale_after_days: 90
+
+# M5: where the orchestrator's SQLite state file lives. See CLAUDE.md's M9
+# deployment note -- .gitignore excludes *.db in general but will need an
+# exception for this specific file once the bot runs on GitHub Actions.
+state_db_path: "jobbot_state.db"

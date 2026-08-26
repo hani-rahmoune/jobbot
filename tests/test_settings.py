@@ -39,6 +39,10 @@ def test_defaults_apply_when_only_the_required_field_is_given(tmp_path: Path) ->
     assert settings.seed_mode is False
     assert settings.fail_on_empty_source is True
     assert settings.allowed_tier2_sources == []
+    assert settings.repost_window_days == 180
+    assert settings.resurrection_window_days == 7
+    assert settings.ghost_stale_after_days == 90
+    assert settings.state_db_path == "jobbot_state.db"
 
 
 def test_jobbot_env_vars_override_yaml_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

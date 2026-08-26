@@ -448,6 +448,33 @@ def test_record_batch_keyed_by_job_id() -> None:
         assert all(v == JobVerdict.NEW for v in results.values())
 
 
+class _Unbindable:
+    """Not a type sqlite3 knows how to bind as a parameter -- used below to
+    trigger a real mid-batch failure without monkeypatching sqlite3 itself
+    (sqlite3.Cursor is a C type and its methods can't be patched)."""
+
+
+def test_mark_published_batch_is_atomic() -> None:
+    with JobStore(":memory:") as store:
+        job1 = _make_job(external_id="1", title="Role 1")
+        store.record(job1, BASE)
+
+        # job1's own update would succeed on its own; the second entry fails
+        # to even bind as a SQL parameter, raising mid-loop.
+        with pytest.raises(sqlite3.ProgrammingError):
+            store.mark_published_batch(
+                [job1.job_id, _Unbindable()], BASE + timedelta(minutes=1)
+            )
+
+        # Atomicity means job1's update must be rolled back too, not just
+        # the failing entry's.
+        row1 = store._conn.execute(
+            "SELECT published_at, publish_pending FROM jobs WHERE job_id = ?", (job1.job_id,)
+        ).fetchone()
+        assert row1["published_at"] is None
+        assert row1["publish_pending"] == 1
+
+
 # --- source health -----------------------------------------------------
 
 

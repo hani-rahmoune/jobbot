@@ -36,6 +36,9 @@ class Settings(BaseModel):
     repost_window_days: int = 180
     resurrection_window_days: int = 7
     ghost_stale_after_days: int = 90
+    # M5: where the orchestrator's JobStore lives. See CLAUDE.md's M9
+    # deployment note about the .gitignore exception this file needs.
+    state_db_path: str = "jobbot_state.db"
 
 
 def _env_overrides() -> dict[str, object]:

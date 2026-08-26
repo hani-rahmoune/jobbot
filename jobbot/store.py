@@ -365,6 +365,29 @@ class JobStore:
         )
         self._conn.commit()
 
+    def mark_published_batch(self, job_ids: list[str], now: datetime) -> None:
+        """Marks every job_id published in ONE transaction: all or nothing.
+
+        Used instead of a loop of mark_published() calls when a single
+        Discord message (one HTTP POST) carried multiple jobs -- see
+        run.py's publish-then-mark discussion for why the commit boundary
+        matters. If anything raises partway through, every update made so
+        far in this call is rolled back, not just the one that failed.
+        """
+        _require_utc(now)
+        now_iso = _iso(now)
+        cur = self._conn.cursor()
+        try:
+            for job_id in job_ids:
+                cur.execute(
+                    "UPDATE jobs SET published_at = ?, publish_pending = 0 WHERE job_id = ?",
+                    (now_iso, job_id),
+                )
+        except Exception:
+            self._conn.rollback()
+            raise
+        self._conn.commit()
+
     def unpublished_new(self) -> list[Job]:
         # publish_pending, not last_verdict (A1): last_verdict is overwritten
         # on every record() call, so a NEW job re-recorded as KNOWN before it

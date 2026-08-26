@@ -18,16 +18,11 @@ from jobbot.sources.greenhouse import (
 
 BOARD_URL = "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
 
-# verify=False: respx intercepts at the transport layer, so no real TLS
-# handshake ever happens here. Skipping it also skips httpx's default
-# SSLContext/CA-bundle setup, which otherwise costs ~0.5-1s per Client() on
-# this machine and would blow the five-second suite budget (CLAUDE.md rule 6).
 
-
-def _make_source(identifier: str = "acme", company_name: str = "Acme Corp") -> GreenhouseSource:
-    return GreenhouseSource(
-        identifier, company_name, httpx.Client(verify=False), user_agent=TEST_USER_AGENT
-    )
+def _make_source(
+    client: httpx.Client, identifier: str = "acme", company_name: str = "Acme Corp"
+) -> GreenhouseSource:
+    return GreenhouseSource(identifier, company_name, client, user_agent=TEST_USER_AGENT)
 
 
 # --- parse() -----------------------------------------------------------
@@ -213,8 +208,8 @@ def test_internship_vocabulary_matches_in_title_still_passes(term: str) -> None:
 # --- fetch_raw() / fetch() ----------------------------------------------
 
 
-def test_fetch_raw_returns_a_two_tuple(greenhouse_payload) -> None:
-    source = _make_source()
+def test_fetch_raw_returns_a_two_tuple(greenhouse_payload, mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         respx.get(BOARD_URL).mock(return_value=httpx.Response(200, json=greenhouse_payload))
         result = source.fetch_raw()
@@ -226,8 +221,8 @@ def test_fetch_raw_returns_a_two_tuple(greenhouse_payload) -> None:
     assert new_etag is None
 
 
-def test_fetch_on_mocked_200_returns_expected_count(greenhouse_payload) -> None:
-    source = _make_source()
+def test_fetch_on_mocked_200_returns_expected_count(greenhouse_payload, mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         respx.get(BOARD_URL).mock(return_value=httpx.Response(200, json=greenhouse_payload))
         jobs = source.fetch()
@@ -235,16 +230,16 @@ def test_fetch_on_mocked_200_returns_expected_count(greenhouse_payload) -> None:
     assert len(jobs) == 7  # 8 fixture entries minus the malformed one
 
 
-def test_fetch_raises_source_empty_error_on_empty_jobs_array() -> None:
-    source = _make_source()
+def test_fetch_raises_source_empty_error_on_empty_jobs_array(mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         respx.get(BOARD_URL).mock(return_value=httpx.Response(200, json={"jobs": []}))
         with pytest.raises(SourceEmptyError):
             source.fetch()
 
 
-def test_fetch_retries_once_on_500_then_succeeds(greenhouse_payload) -> None:
-    source = _make_source()
+def test_fetch_retries_once_on_500_then_succeeds(greenhouse_payload, mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         route = respx.get(BOARD_URL)
         route.side_effect = [httpx.Response(500), httpx.Response(200, json=greenhouse_payload)]
@@ -254,8 +249,8 @@ def test_fetch_retries_once_on_500_then_succeeds(greenhouse_payload) -> None:
     assert route.call_count == 2
 
 
-def test_fetch_retries_once_on_timeout_then_succeeds(greenhouse_payload) -> None:
-    source = _make_source()
+def test_fetch_retries_once_on_timeout_then_succeeds(greenhouse_payload, mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         route = respx.get(BOARD_URL)
         route.side_effect = [
@@ -268,8 +263,8 @@ def test_fetch_retries_once_on_timeout_then_succeeds(greenhouse_payload) -> None
     assert route.call_count == 2
 
 
-def test_fetch_raises_source_error_after_exhausting_retries() -> None:
-    source = _make_source()
+def test_fetch_raises_source_error_after_exhausting_retries(mock_client) -> None:
+    source = _make_source(mock_client)
     with respx.mock:
         route = respx.get(BOARD_URL).mock(return_value=httpx.Response(500))
         with pytest.raises(SourceError):
@@ -278,9 +273,9 @@ def test_fetch_raises_source_error_after_exhausting_retries() -> None:
     assert route.call_count == 2  # one request, one retry, then give up
 
 
-def test_fetch_does_not_retry_on_4xx() -> None:
+def test_fetch_does_not_retry_on_4xx(mock_client) -> None:
     url = "https://boards-api.greenhouse.io/v1/boards/missing-co/jobs"
-    source = _make_source("missing-co", "Missing Co")
+    source = _make_source(mock_client, "missing-co", "Missing Co")
     with respx.mock:
         route = respx.get(url).mock(return_value=httpx.Response(410))  # Gone, not 404
         with pytest.raises(SourceError):
@@ -289,9 +284,9 @@ def test_fetch_does_not_retry_on_4xx() -> None:
     assert route.call_count == 1
 
 
-def test_fetch_raises_source_not_found_error_on_404() -> None:
+def test_fetch_raises_source_not_found_error_on_404(mock_client) -> None:
     url = "https://boards-api.greenhouse.io/v1/boards/missing-co/jobs"
-    source = _make_source("missing-co", "Missing Co")
+    source = _make_source(mock_client, "missing-co", "Missing Co")
     with respx.mock:
         route = respx.get(url).mock(return_value=httpx.Response(404))
         with pytest.raises(SourceNotFoundError):
@@ -306,11 +301,9 @@ def test_fetch_raises_source_not_found_error_on_404() -> None:
             source.fetch()
 
 
-def test_user_agent_header_matches_what_was_injected(greenhouse_payload) -> None:
+def test_user_agent_header_matches_what_was_injected(greenhouse_payload, mock_client) -> None:
     custom_user_agent = "jobbot-test/9.9 (+someone-else@example.invalid)"
-    source = GreenhouseSource(
-        "acme", "Acme Corp", httpx.Client(verify=False), user_agent=custom_user_agent
-    )
+    source = GreenhouseSource("acme", "Acme Corp", mock_client, user_agent=custom_user_agent)
     with respx.mock:
         route = respx.get(BOARD_URL).mock(return_value=httpx.Response(200, json=greenhouse_payload))
         source.fetch()
