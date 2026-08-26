@@ -16,7 +16,8 @@ keywords:
   include: [data, donnees, machine learning, deep learning, ia, ai, llm,
             nlp, analytics, statistiques, python, sql, data science,
             data engineer, mlops, computer vision]
-  exclude: [sales, commercial, vente, recrutement]
+  exclude: [sales, commercial, vente, recrutement, recruiting, recruiter,
+            talent, account executive, customer success, marketing]
   match_mode: word             # word | substring
-  fields: [title, description]
+  fields: [title]
   require: any                 # any | all, across the include list
