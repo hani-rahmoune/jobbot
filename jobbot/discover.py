@@ -23,6 +23,18 @@ both needed for the CLI flags this milestone also asks for:
   identifier, e.g. a non-https URL handed to JsonLdSource) as a discovery
   failure rather than letting it escape -- the same "never raises, always
   (0, reason)" contract the milestone specifies for SourceError.
+
+Post-M7 fix: the first real run (22 companies, 5 confirmed, all previously
+known) showed that guessing fixed paths like /careers doesn't work -- most
+sites link their careers page from the nav bar instead of serving it at a
+guessable URL. Illuin Technology was the proof: it genuinely uses Ashby, but
+its homepage links to none of /careers, /jobs, /carrieres, /recrutement.
+discover_company's resolution order is now: (1) the site root, always fetched
+first, since it's the one page guaranteed to exist and the one most likely to
+carry a nav link, (2) actual careers-looking links harvested from that root
+page via careers_links(), and only then (3) the guessed-path list as a last
+resort. See careers_links() below and discover_company()'s docstring for the
+full order.
 """
 
 from __future__ import annotations
@@ -36,15 +48,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 import yaml
 
+from jobbot.models import normalize
 from jobbot.settings import SettingsError, load_settings
 from jobbot.sources.ashby import AshbySource
 from jobbot.sources.base import JobSource, SourceError
 from jobbot.sources.greenhouse import GreenhouseSource
+from jobbot.sources.html_text import strip_html
 from jobbot.sources.jsonld import JsonLdSource
 from jobbot.sources.lever import LeverSource
 from jobbot.sources.robots import RobotsCache
@@ -52,7 +66,8 @@ from jobbot.sources.robots import RobotsCache
 logger = logging.getLogger(__name__)
 
 FETCH_TIMEOUT_SECONDS = 15.0
-MAX_URL_ATTEMPTS = 4
+MAX_URL_ATTEMPTS = 8
+MAX_CAREERS_LINKS = 6
 DEFAULT_DELAY_SECONDS = 2.0
 DEFAULT_OUTPUT_PATH = Path("discovered.yaml")
 
@@ -193,6 +208,89 @@ def candidate_careers_urls(website: str) -> list[str]:
     return urls
 
 
+# Same keyword list for both href and link text; link text additionally
+# accepts a few whole phrases that don't contain any of these words on their
+# own ("We're hiring", "On recrute").
+_CAREERS_KEYWORDS = (
+    "career", "careers", "jobs", "emploi", "emplois", "carriere", "carrieres",
+    "recrutement", "rejoign", "join-us", "nous-rejoindre",
+)
+_CAREERS_TEXT_PHRASES = ("nous recrutons", "on recrute", "we're hiring")
+
+# A nav link often points straight at the ATS itself (jobs.ashbyhq.com/token,
+# boards.greenhouse.io/token) rather than at an internal /careers page --
+# that's a different host than the company's own, so it needs an explicit
+# exception to the same-host restriction below.
+_KNOWN_ATS_HOSTS = frozenset(
+    {
+        "boards.greenhouse.io", "job-boards.greenhouse.io", "boards-api.greenhouse.io",
+        "jobs.lever.co", "api.lever.co",
+        "jobs.ashbyhq.com", "api.ashbyhq.com",
+    }
+)
+
+_ANCHOR_RE = re.compile(
+    r'<a\b[^>]*\bhref\s*=\s*["\']([^"\']*)["\'][^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _normalize_for_careers_match(text: str) -> str:
+    return normalize(text).replace("’", "'")
+
+
+def _looks_like_a_careers_link(href: str, link_text: str) -> bool:
+    href_norm = _normalize_for_careers_match(href)
+    if any(keyword in href_norm for keyword in _CAREERS_KEYWORDS):
+        return True
+    text_norm = _normalize_for_careers_match(link_text)
+    if any(keyword in text_norm for keyword in _CAREERS_KEYWORDS):
+        return True
+    return any(phrase in text_norm for phrase in _CAREERS_TEXT_PHRASES)
+
+
+def _bare_host(netloc: str) -> str:
+    return netloc.removeprefix("www.")
+
+
+def careers_links(html: str, base_url: str) -> list[str]:
+    """Pure, no network. Absolute URLs of every anchor in `html` whose href
+    or visible text suggests a careers page -- same host as `base_url` (a
+    leading "www." ignored on either side), or a known ATS's own host, since
+    a nav link often points straight at one. Deduplicated, document order
+    preserved, capped at MAX_CAREERS_LINKS.
+    """
+    base_host = _bare_host(urlsplit(base_url).netloc.lower())
+    seen: set[str] = set()
+    links: list[str] = []
+
+    for match in _ANCHOR_RE.finditer(html):
+        href, inner_html = match.group(1), match.group(2)
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            continue
+
+        link_text = strip_html(inner_html)
+        if not _looks_like_a_careers_link(href, link_text):
+            continue
+
+        absolute = urljoin(base_url, href)
+        if not absolute.startswith(("http://", "https://")):
+            continue
+
+        host = _bare_host(urlsplit(absolute).netloc.lower())
+        if host != base_host and host not in _KNOWN_ATS_HOSTS:
+            continue
+
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        links.append(absolute)
+        if len(links) >= MAX_CAREERS_LINKS:
+            break
+
+    return links
+
+
 def discover_company(
     website: str,
     company_name: str,
@@ -202,41 +300,100 @@ def discover_company(
     delay: float = DEFAULT_DELAY_SECONDS,
     verify_result: bool = True,
 ) -> DiscoveryResult:
-    """Fetches candidate careers URLs in order until detect_ats finds
-    something, verifying the result unless `verify_result` is False."""
+    """Resolution order, at most MAX_URL_ATTEMPTS fetches total:
+
+    1. the site root, always fetched first -- the one page guaranteed to
+       exist and the one most likely to carry a nav link to careers.
+    2. actual careers-looking links harvested from that root page (see
+       careers_links()), fetched in order, detect_ats run on each.
+    3. only then, the guessed-path list (candidate_careers_urls()), as a
+       last resort for sites careers_links() found nothing on.
+
+    Verifies the result unless `verify_result` is False. On failure, `notes`
+    records every URL attempted and what it returned, plus whether any
+    careers-looking links were found at all -- enough to debug from
+    unresolved.txt without re-running anything.
+    """
     robots = RobotsCache(client, user_agent)
-    candidates = candidate_careers_urls(website)[:MAX_URL_ATTEMPTS]
+    attempts: list[str] = []
+    fetched: set[str] = set()
 
-    detected_ats: str | None = None
-    detected_identifier: str | None = None
-    detected_url: str | None = None
+    def try_url(url: str) -> tuple[str | None, str | None, str | None]:
+        """Fetch one URL (skipping ones already fetched this call), record
+        what happened in `attempts`. Returns (ats, identifier, html); html is
+        None on any failure so callers can still tell a fetch failed apart
+        from a fetch that succeeded but matched nothing."""
+        if url in fetched:
+            return None, None, None
+        fetched.add(url)
 
-    for index, url in enumerate(candidates):
-        if index > 0:
+        if attempts:  # never sleep before the very first request
             sleep(delay)
 
         if not robots.allowed(url):
-            logger.info("discover: robots.txt disallows %s, skipping", url)
-            continue
+            attempts.append(f"{url} -> robots.txt disallowed")
+            return None, None, None
 
         try:
             response = client.get(
                 url, headers={"User-Agent": user_agent}, timeout=FETCH_TIMEOUT_SECONDS
             )
         except httpx.HTTPError as exc:
-            logger.info("discover: fetch failed for %s: %s", url, exc)
-            continue
+            attempts.append(f"{url} -> fetch failed: {exc}")
+            return None, None, None
 
         if response.status_code != 200:
-            logger.info("discover: %s returned HTTP %d", url, response.status_code)
-            continue
+            attempts.append(f"{url} -> HTTP {response.status_code}")
+            return None, None, None
 
         ats, identifier = detect_ats(response.text, url)
         if ats is not None:
-            detected_ats, detected_identifier, detected_url = ats, identifier, url
-            break
+            attempts.append(f"{url} -> HTTP 200, detected {ats}")
+            return ats, identifier, response.text
+
+        attempts.append(f"{url} -> HTTP 200, no ATS signature")
+        return None, None, response.text
+
+    detected_ats: str | None = None
+    detected_identifier: str | None = None
+    detected_url: str | None = None
+    root_url = website.rstrip("/")
+
+    # Step 1: the site root.
+    ats, identifier, root_html = try_url(root_url)
+    if ats is not None:
+        detected_ats, detected_identifier, detected_url = ats, identifier, root_url
+
+    # Step 2: careers-looking links found on that root page.
+    links_found: list[str] = []
+    if detected_ats is None and root_html is not None:
+        links_found = careers_links(root_html, root_url)
+        for link_url in links_found:
+            if len(fetched) >= MAX_URL_ATTEMPTS:
+                break
+            ats, identifier, _ = try_url(link_url)
+            if ats is not None:
+                detected_ats, detected_identifier, detected_url = ats, identifier, link_url
+                break
+
+    # Step 3: guessed paths, last resort.
+    if detected_ats is None:
+        for candidate_url in candidate_careers_urls(website):
+            if len(fetched) >= MAX_URL_ATTEMPTS:
+                break
+            if candidate_url == root_url:
+                continue  # already tried in step 1
+            ats, identifier, _ = try_url(candidate_url)
+            if ats is not None:
+                detected_ats, detected_identifier, detected_url = ats, identifier, candidate_url
+                break
 
     if detected_ats is None or detected_identifier is None:
+        notes = "; ".join(attempts) if attempts else "no attempts made"
+        if links_found:
+            notes += f"; careers links found but none exposed a known ATS: {', '.join(links_found)}"
+        elif root_html is not None:
+            notes += "; no careers links found on the root page"
         return DiscoveryResult(
             company_name=company_name,
             website=website,
@@ -245,7 +402,7 @@ def discover_company(
             careers_url=None,
             postings_found=0,
             confidence="none",
-            notes=f"no ATS signature found in {len(candidates)} attempts",
+            notes=notes,
         )
 
     if verify_result:

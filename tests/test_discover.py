@@ -14,6 +14,7 @@ from jobbot.discover import (
     DiscoveryResult,
     _derive_name_from_url,
     candidate_careers_urls,
+    careers_links,
     detect_ats,
     discover_company,
     load_existing_entries,
@@ -170,23 +171,102 @@ def test_candidate_careers_urls_strips_trailing_slash_and_puts_root_last() -> No
     assert urls[-1] == "https://example.com"
 
 
+# --- careers_links ---------------------------------------------------------
+
+
+def test_careers_links_matches_by_english_href() -> None:
+    html = '<a href="/careers">Join Us</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/careers"]
+
+
+def test_careers_links_matches_by_french_href() -> None:
+    html = '<a href="/carrieres">A propos</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/carrieres"]
+
+
+def test_careers_links_matches_by_english_link_text() -> None:
+    html = '<a href="/about-us">Careers</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/about-us"]
+
+
+def test_careers_links_matches_by_french_link_text() -> None:
+    html = '<a href="/a-propos">Nous recrutons</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/a-propos"]
+
+
+def test_careers_links_matches_accented_french_text() -> None:
+    # "carrière" (accented) must match the unaccented "carriere" keyword.
+    html = '<a href="/x">Nos carrières</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/x"]
+
+
+def test_careers_links_matches_hiring_phrases() -> None:
+    for text in ("We're hiring", "On recrute", "Nous recrutons !"):
+        html = f'<a href="/x">{text}</a>'
+        assert careers_links(html, "https://acme.example") == ["https://acme.example/x"], text
+
+
+def test_careers_links_ignores_off_host_links() -> None:
+    html = '<a href="https://otherdomain.example/careers">Careers</a>'
+    assert careers_links(html, "https://acme.example") == []
+
+
+def test_careers_links_allows_known_ats_hosts_despite_being_off_host() -> None:
+    html = '<a href="https://jobs.ashbyhq.com/acme">Careers</a>'
+    assert careers_links(html, "https://acme.example") == ["https://jobs.ashbyhq.com/acme"]
+
+
+def test_careers_links_ignores_www_prefix_when_comparing_hosts() -> None:
+    html = '<a href="https://www.acme.example/careers">Careers</a>'
+    assert careers_links(html, "https://acme.example") == ["https://www.acme.example/careers"]
+
+
+def test_careers_links_ignores_links_with_no_careers_signal() -> None:
+    html = '<a href="/about">About us</a><a href="/pricing">Pricing</a>'
+    assert careers_links(html, "https://acme.example") == []
+
+
+def test_careers_links_ignores_non_http_hrefs() -> None:
+    html = '<a href="mailto:careers@acme.example">Careers</a><a href="#careers">Careers</a>'
+    assert careers_links(html, "https://acme.example") == []
+
+
+def test_careers_links_deduplicates() -> None:
+    html = '<a href="/careers">Careers</a><a href="/careers">Careers (footer)</a>'
+    assert careers_links(html, "https://acme.example") == ["https://acme.example/careers"]
+
+
+def test_careers_links_preserves_document_order() -> None:
+    html = '<a href="/jobs">Jobs</a><a href="/careers">Careers</a>'
+    assert careers_links(html, "https://acme.example") == [
+        "https://acme.example/jobs",
+        "https://acme.example/careers",
+    ]
+
+
+def test_careers_links_caps_at_six() -> None:
+    html = "".join(f'<a href="/careers-{i}">Careers</a>' for i in range(8))
+    links = careers_links(html, "https://acme.example")
+    assert len(links) == 6
+    assert links == [f"https://acme.example/careers-{i}" for i in range(6)]
+
+
 # --- discover_company ----------------------------------------------------
 
 
-def test_discover_company_stops_at_first_detection_and_does_not_fetch_the_rest(
+def test_discover_company_root_with_ats_href_resolves_at_step_1_with_zero_further_fetches(
     mock_client: httpx.Client,
 ) -> None:
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        careers_route = respx.get(f"{website}/careers").mock(
+        root_route = respx.get(website, path="/").mock(
             return_value=httpx.Response(
                 200, text='<a href="https://boards.greenhouse.io/acme">Careers</a>'
             )
         )
-        jobs_route = respx.get(f"{website}/jobs").mock(
-            return_value=httpx.Response(200, text="must never be fetched")
-        )
+        # No other route is registered at all -- respx errors on any request
+        # that doesn't match a route, so a second fetch would fail the test.
         result = discover_company(
             website, "Acme", mock_client, TEST_USER_AGENT,
             sleep=lambda s: None, verify_result=False,
@@ -194,22 +274,72 @@ def test_discover_company_stops_at_first_detection_and_does_not_fetch_the_rest(
 
     assert result.ats == "greenhouse"
     assert result.identifier == "acme"
-    assert careers_route.call_count == 1
-    assert jobs_route.call_count == 0
+    assert root_route.call_count == 1
 
 
-def test_discover_company_gives_up_after_four_attempts_with_confidence_none(
+def test_discover_company_root_with_careers_nav_link_resolves_at_step_2(
     mock_client: httpx.Client,
 ) -> None:
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        for path in ("/careers", "/jobs", "/carrieres", "/recrutement"):
-            respx.get(f"{website}{path}").mock(
+        root_route = respx.get(website, path="/").mock(
+            return_value=httpx.Response(200, text='<a href="/careers">Careers</a>')
+        )
+        careers_route = respx.get(f"{website}/careers").mock(
+            return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Apply</a>')
+        )
+        # None of the guessed paths are registered -- if the resolution
+        # order ever fell through to them, respx would error on the request.
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.ats == "lever"
+    assert result.identifier == "acme"
+    assert root_route.call_count == 1
+    assert careers_route.call_count == 1
+
+
+def test_discover_company_falls_through_to_guessed_paths_when_root_has_neither(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+        respx.get(f"{website}/careers").mock(
+            return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
+        )
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.ats == "lever"
+    assert result.identifier == "acme"
+
+
+def test_discover_company_gives_up_after_eight_attempts_with_confidence_none(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    # 6 careers-looking nav links on the root -- careers_links() caps at 6,
+    # so root (1) + these (6) + one guessed path (1) = 8, the cap.
+    root_html = "".join(f'<a href="/link{i}">Careers</a>' for i in range(6))
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text=root_html))
+        for i in range(6):
+            respx.get(f"{website}/link{i}").mock(
                 return_value=httpx.Response(200, text="<html>no ats signature here</html>")
             )
-        never_route = respx.get(f"{website}/nous-rejoindre").mock(
-            return_value=httpx.Response(200, text="must never be fetched, 5th attempt")
+        respx.get(f"{website}/careers").mock(
+            return_value=httpx.Response(200, text="<html>no ats signature here either</html>")
+        )
+        never_route = respx.get(f"{website}/jobs").mock(
+            return_value=httpx.Response(200, text="must never be fetched, 9th attempt")
         )
 
         result = discover_company(website, "Acme", mock_client, TEST_USER_AGENT, sleep=lambda s: None)
@@ -226,8 +356,8 @@ def test_500_on_one_candidate_moves_to_the_next_rather_than_aborting(
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(return_value=httpx.Response(500))
-        respx.get(f"{website}/jobs").mock(
+        respx.get(website, path="/").mock(return_value=httpx.Response(500))
+        respx.get(f"{website}/careers").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         result = discover_company(
@@ -247,11 +377,11 @@ def test_a_redirected_candidate_url_is_still_followed_and_detected() -> None:
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
-            return_value=httpx.Response(301, headers={"Location": "https://www.acme.example/careers"})
+        respx.get(website, path="/").mock(
+            return_value=httpx.Response(301, headers={"Location": "https://www.acme.example"})
         )
         _mock_robots_allow("www.acme.example")
-        respx.get("https://www.acme.example/careers").mock(
+        respx.get("https://www.acme.example", path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         result = discover_company(
@@ -270,6 +400,7 @@ def test_robots_disallow_skips_that_url_without_fetching_it(mock_client: httpx.C
         respx.get("https://acme.example/robots.txt").mock(
             return_value=httpx.Response(200, text=robots_txt)
         )
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
         careers_route = respx.get(f"{website}/careers").mock(
             return_value=httpx.Response(200, text="must never be fetched")
         )
@@ -284,6 +415,32 @@ def test_robots_disallow_skips_that_url_without_fetching_it(mock_client: httpx.C
     assert careers_route.call_count == 0
     assert jobs_route.call_count == 1
     assert result.ats == "lever"
+
+
+def test_unresolved_notes_record_every_attempted_url(mock_client: httpx.Client) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+        respx.get(f"{website}/careers").mock(return_value=httpx.Response(404))
+        respx.get(f"{website}/jobs").mock(return_value=httpx.Response(500))
+
+        # Force a small candidate list so the test doesn't need to mock all
+        # 8 attempts: monkeypatch-free by capping via candidate_careers_urls
+        # isn't possible here, so mock the remaining guessed paths as 404s.
+        for path in (
+            "/carrieres", "/recrutement", "/nous-rejoindre", "/rejoignez-nous",
+            "/emplois", "/join-us",
+        ):
+            respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
+
+        result = discover_company(website, "Acme", mock_client, TEST_USER_AGENT, sleep=lambda s: None)
+
+    assert result.confidence == "none"
+    assert website in result.notes
+    assert f"{website}/careers" in result.notes
+    assert f"{website}/jobs" in result.notes
+    assert "no careers links found on the root page" in result.notes
 
 
 # --- verify() / confidence promotion --------------------------------------
@@ -327,7 +484,7 @@ def test_discover_company_confirmed_when_verify_finds_postings(mock_client: http
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
+        respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         respx.get("https://api.lever.co/v0/postings/acme?mode=json").mock(
@@ -353,7 +510,7 @@ def test_discover_company_probable_when_verify_finds_nothing(mock_client: httpx.
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
+        respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         respx.get("https://api.lever.co/v0/postings/acme?mode=json").mock(
@@ -369,7 +526,7 @@ def test_discover_company_probable_when_no_verify_flag_set(mock_client: httpx.Cl
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
+        respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         result = discover_company(
@@ -389,8 +546,8 @@ def test_sleep_called_between_requests_with_the_configured_delay(mock_client: ht
     sleep_calls: list[float] = []
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(return_value=httpx.Response(200, text="nothing here"))
-        respx.get(f"{website}/jobs").mock(
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="nothing here"))
+        respx.get(f"{website}/careers").mock(
             return_value=httpx.Response(200, text='<a href="https://boards.greenhouse.io/acme">C</a>')
         )
         discover_company(
@@ -398,15 +555,15 @@ def test_sleep_called_between_requests_with_the_configured_delay(mock_client: ht
             sleep=sleep_calls.append, delay=3.5, verify_result=False,
         )
 
-    assert sleep_calls == [3.5]  # once, between the /careers and /jobs attempts
+    assert sleep_calls == [3.5]  # once, between the root fetch and the /careers fallback
 
 
-def test_sleep_not_called_when_first_candidate_succeeds(mock_client: httpx.Client) -> None:
+def test_sleep_not_called_when_root_succeeds(mock_client: httpx.Client) -> None:
     website = "https://acme.example"
     sleep_calls: list[float] = []
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
+        respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://boards.greenhouse.io/acme">C</a>')
         )
         discover_company(
@@ -464,7 +621,7 @@ def test_append_does_not_duplicate_an_entry_already_present(
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get(f"{website}/careers").mock(
+        respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         run_discovery(
@@ -483,7 +640,11 @@ def test_unresolved_entries_never_appear_in_the_yaml(mock_client: httpx.Client, 
     website = "https://nomatch.example"
     with respx.mock:
         _mock_robots_allow("nomatch.example")
-        for path in ("/careers", "/jobs", "/carrieres", "/recrutement"):
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+        for path in (
+            "/careers", "/jobs", "/carrieres", "/recrutement", "/nous-rejoindre",
+            "/rejoignez-nous", "/emplois",
+        ):
             respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
 
         results = run_discovery(
@@ -506,13 +667,14 @@ def test_run_discovery_writes_incrementally_after_each_company(
     with respx.mock:
         _mock_robots_allow("first.example")
         _mock_robots_allow("second.example")
-        respx.get("https://first.example/careers").mock(
+        respx.get("https://first.example", path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/first">C</a>')
         )
-        # No ATS signature here -- forces discover_company to move on to a
-        # second candidate URL for "Second", which is where sleep() (and
-        # thus the interruption) happens.
-        respx.get("https://second.example/careers").mock(
+        # No ATS signature and no careers links here -- forces
+        # discover_company to fall through to the guessed-path list for
+        # "Second", which is where sleep() (and thus the interruption)
+        # happens, since the root fetch itself never sleeps.
+        respx.get("https://second.example", path="/").mock(
             return_value=httpx.Response(200, text="<html>no signature here</html>")
         )
 
@@ -616,7 +778,7 @@ def test_main_end_to_end_writes_output_and_exits_zero(
 
     with respx.mock:
         _mock_robots_allow("acme.example")
-        respx.get("https://acme.example/careers").mock(
+        respx.get("https://acme.example", path="/").mock(
             return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Careers</a>')
         )
         respx.get("https://api.lever.co/v0/postings/acme?mode=json").mock(
