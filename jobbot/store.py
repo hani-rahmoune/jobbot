@@ -33,6 +33,7 @@ explicitly (`JobStore(path, repost_window_days=settings.repost_window_days,
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -104,6 +105,21 @@ def is_publishable(verdict: JobVerdict) -> bool:
     """Only NEW is ever publishable. A single choke point so no caller can
     get this wrong by hand-rolling the comparison."""
     return verdict is JobVerdict.NEW
+
+
+@dataclass
+class StoreStats:
+    """M9 B5: what `jobbot.run --stats` prints. Raw counts by column state,
+    not mutually exclusive categories -- a job can be both published and,
+    much later, disappeared, and both counts include it."""
+
+    total_jobs: int
+    published: int
+    pending: int
+    stale: int
+    disappeared: int
+    by_company: dict[str, int] = field(default_factory=dict)
+    recently_published: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 def _iso(dt: datetime) -> str:
@@ -494,6 +510,54 @@ class JobStore:
             (threshold,),
         ).fetchall()
         return [(row["source"], row["company"], row["consecutive_failures"]) for row in rows]
+
+    # -- introspection (M9 B5, D1) -------------------------------------------
+
+    def schema_version(self) -> int:
+        """The version this database is actually at right now. Note that
+        opening a JobStore already runs initialize(), which migrates an old
+        database up to SCHEMA_VERSION as a side effect -- so this mostly
+        confirms the store opened and initialized cleanly, not that it was
+        already current before this process touched it."""
+        row = self._conn.execute("SELECT version FROM schema_version").fetchone()
+        return row["version"] if row is not None else 0
+
+    def stats(self) -> StoreStats:
+        """A snapshot for `jobbot.run --stats` -- no fetching, no posting,
+        just what's already in the database."""
+
+        def count(where: str) -> int:
+            return self._conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {where}").fetchone()[0]
+
+        total_jobs = self._conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        published = count("published_at IS NOT NULL")
+        pending = count("publish_pending = 1")
+        stale = count("is_stale = 1")
+        disappeared = count("disappeared_at IS NOT NULL")
+
+        by_company = dict(
+            self._conn.execute(
+                "SELECT company, COUNT(*) FROM jobs GROUP BY company ORDER BY company"
+            ).fetchall()
+        )
+
+        recent_rows = self._conn.execute(
+            "SELECT title, company, published_at FROM jobs "
+            "WHERE published_at IS NOT NULL ORDER BY published_at DESC LIMIT 10"
+        ).fetchall()
+        recently_published = [
+            (row["title"], row["company"], row["published_at"]) for row in recent_rows
+        ]
+
+        return StoreStats(
+            total_jobs=total_jobs,
+            published=published,
+            pending=pending,
+            stale=stale,
+            disappeared=disappeared,
+            by_company=by_company,
+            recently_published=recently_published,
+        )
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:

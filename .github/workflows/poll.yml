@@ -1,0 +1,109 @@
+name: Poll
+
+# M9: this is the only workflow that touches the schedule (CI stays on push
+# and pull_request only, see ci.yml -- B4). It's also the only workflow that
+# needs write access to the repo, since a poll run's state (jobbot_state.db)
+# must survive between runs and is committed back here rather than kept in
+# any external store (CLAUDE.md's zero-cost rule rules out a hosted database).
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: fetch and filter, make zero Discord requests"
+        required: false
+        type: boolean
+        default: false
+
+# Two overlapping runs writing jobbot_state.db at once would corrupt it.
+# cancel-in-progress stays false on purpose: a queued run should still run
+# once the current one finishes, not be silently dropped.
+concurrency:
+  group: jobbot-poll
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run jobbot
+        id: run_bot
+        shell: bash
+        env:
+          JOBBOT_DISCORD_WEBHOOK_URL: ${{ secrets.JOBBOT_DISCORD_WEBHOOK_URL }}
+          JOBBOT_DISCORD_ERROR_WEBHOOK_URL: ${{ secrets.JOBBOT_DISCORD_ERROR_WEBHOOK_URL }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+        run: |
+          set +e
+          if [ "$DRY_RUN_INPUT" = "true" ]; then
+            uv run python -m jobbot.run --verbose --dry-run 2>&1 | tee run_output.log
+          else
+            uv run python -m jobbot.run --verbose 2>&1 | tee run_output.log
+          fi
+          exit_code=${PIPESTATUS[0]}
+          published=$(grep -o 'jobbot_published_count=[0-9]*' run_output.log | tail -1 | cut -d= -f2)
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          echo "published=${published:-0}" >> "$GITHUB_OUTPUT"
+
+      # Exit 2 = config or environment error (e.g. a malformed yaml, a
+      # missing webhook secret). Nothing meaningful ran, so nothing gets
+      # committed -- fail the job immediately.
+      - name: Fail immediately on config/environment error
+        if: steps.run_bot.outputs.exit_code == '2'
+        run: |
+          echo "::error::jobbot exited 2 (config/environment error) -- not committing state."
+          exit 1
+
+      # Runs for both exit 0 (success) and exit 1 (every source failed):
+      # either way, whatever state changes did happen (source_health
+      # failures included) are real and must not be lost.
+      - name: Commit and push jobbot_state.db if it changed
+        if: steps.run_bot.outputs.exit_code != '2'
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain -- jobbot_state.db)" ]; then
+            echo "jobbot_state.db unchanged, nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add jobbot_state.db
+          git commit -m "jobbot: poll run, published=${{ steps.run_bot.outputs.published }} [skip ci]"
+
+          # B3: the concurrency group stops two runs overlapping, but a push
+          # can still race an unrelated commit to the branch (a manual edit,
+          # a merged PR). Pull with rebase and retry the push once before
+          # giving up -- silently losing a run's state is worse than a
+          # visibly failed job.
+          if git push; then
+            exit 0
+          fi
+          echo "push rejected, pulling --rebase and retrying once"
+          if git pull --rebase && git push; then
+            exit 0
+          fi
+          echo "::error::failed to push jobbot_state.db even after a rebase retry -- investigate manually, state may be out of sync."
+          exit 1
+
+      # Exit 1 = every configured source failed this run. State (including
+      # the source_health failure counters) was already committed above;
+      # this step's only job is making sure that still shows up red.
+      - name: Fail the job if every source failed
+        if: steps.run_bot.outputs.exit_code == '1'
+        run: |
+          echo "::error::jobbot exited 1 (every configured source failed this run)."
+          exit 1

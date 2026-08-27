@@ -534,3 +534,61 @@ def test_seed_mode_publishes_nothing_on_a_realistic_first_run() -> None:
 
         unpublished = store.unpublished_new()
         assert {j.external_id for j in unpublished} == {str(200 + i) for i in range(3)}
+
+
+# --- introspection (M9 B5, D1) ----------------------------------------------
+
+
+def test_schema_version_reports_the_current_version() -> None:
+    with JobStore(":memory:") as store:
+        assert store.schema_version() == SCHEMA_VERSION
+
+
+def test_stats_reports_totals_pending_stale_disappeared_by_company_and_recent(
+    tmp_path: Path,
+) -> None:
+    with JobStore(tmp_path / "state.db") as store:
+        # Recorded well before the others so age_ghosts's default 90-day
+        # window catches only this one.
+        job_c = _make_job(external_id="c", company="Beta", title="Stage Data")
+        store.record(job_c, BASE - timedelta(days=100))
+
+        job_a = _make_job(external_id="a", company="Acme", title="Data Analyst Intern")
+        job_b = _make_job(external_id="b", company="Acme", title="Alternance BI")
+        job_d = _make_job(external_id="d", company="Gamma", title="Alternance Data Engineer")
+        store.record(job_a, BASE)
+        store.record(job_b, BASE)
+        store.record(job_d, BASE)
+
+        store.mark_published(job_a.job_id, BASE)
+        store.mark_published(job_b.job_id, BASE + timedelta(hours=1))
+
+        store.age_ghosts(BASE)  # job_c (100 days old) goes stale; a/b/d don't
+        store.mark_absent("greenhouse", "Gamma", seen_job_ids=set(), now=BASE)  # job_d disappears
+
+        stats = store.stats()
+
+    assert stats.total_jobs == 4
+    assert stats.published == 2
+    assert stats.pending == 2  # job_c and job_d never got mark_published()
+    assert stats.stale == 1  # job_c only
+    assert stats.disappeared == 1  # job_d only
+    assert stats.by_company == {"Acme": 2, "Beta": 1, "Gamma": 1}
+    # Most recently published first.
+    assert [title for title, _company, _at in stats.recently_published] == [
+        "Alternance BI",
+        "Data Analyst Intern",
+    ]
+
+
+def test_stats_on_an_empty_database_is_all_zeros() -> None:
+    with JobStore(":memory:") as store:
+        stats = store.stats()
+
+    assert stats.total_jobs == 0
+    assert stats.published == 0
+    assert stats.pending == 0
+    assert stats.stale == 0
+    assert stats.disappeared == 0
+    assert stats.by_company == {}
+    assert stats.recently_published == []

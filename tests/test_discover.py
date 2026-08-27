@@ -13,6 +13,7 @@ from jobbot.config import load_companies
 from jobbot.discover import (
     DiscoveryResult,
     _derive_name_from_url,
+    _ranked_depth2_candidates,
     candidate_careers_urls,
     careers_links,
     detect_ats,
@@ -441,6 +442,135 @@ def test_unresolved_notes_record_every_attempted_url(mock_client: httpx.Client) 
     assert f"{website}/careers" in result.notes
     assert f"{website}/jobs" in result.notes
     assert "no careers links found on the root page" in result.notes
+
+
+# --- depth-2 (M9 Part A) ---------------------------------------------------
+
+
+def test_ranked_depth2_candidates_prefers_listings_suggesting_links() -> None:
+    # "/careers" appears first in the document but carries no listings
+    # signal; "/nos-offres" appears second but must rank first (A3).
+    html = '<a href="/careers">Careers</a><a href="/nos-offres">Nos offres</a>'
+    ranked = _ranked_depth2_candidates(html, "https://acme.example")
+    assert ranked == [
+        "https://acme.example/nos-offres",
+        "https://acme.example/careers",
+    ]
+
+
+def test_discover_company_depth2_page_carrying_ats_resolves_and_reports_the_full_path(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(
+            return_value=httpx.Response(200, text='<a href="/careers">Careers</a>')
+        )
+        respx.get(f"{website}/careers").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    '<a href="/careers/team">Our culture</a>'
+                    '<a href="/careers/offres">Voir les offres</a>'
+                ),
+            )
+        )
+        respx.get(f"{website}/careers/offres").mock(
+            return_value=httpx.Response(200, text='<a href="https://jobs.lever.co/acme">Postuler</a>')
+        )
+        # The listings-suggesting link is tried first (A3) and resolves
+        # before the generic "team" link is ever fetched.
+        team_route = respx.get(f"{website}/careers/team").mock(
+            return_value=httpx.Response(200, text="<html>culture page</html>")
+        )
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.ats == "lever"
+    assert result.identifier == "acme"
+    # careers_url reports the full path resolved to: the depth-2 URL, not
+    # the root or the depth-1 page that led to it.
+    assert result.careers_url == f"{website}/careers/offres"
+    assert team_route.call_count == 0
+
+
+def test_visited_url_is_never_refetched_even_when_reachable_from_two_paths(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(
+            return_value=httpx.Response(
+                200, text='<a href="/careers">Careers</a><a href="/jobs">Jobs</a>'
+            )
+        )
+        respx.get(f"{website}/careers").mock(
+            return_value=httpx.Response(200, text='<a href="/offres">Voir les offres</a>')
+        )
+        respx.get(f"{website}/jobs").mock(
+            return_value=httpx.Response(200, text='<a href="/offres">Voir les offres</a>')
+        )
+        # Reachable as a depth-2 candidate from both /careers and /jobs --
+        # must only ever be fetched once.
+        shared_route = respx.get(f"{website}/offres").mock(
+            return_value=httpx.Response(200, text="<html>no ats here either</html>")
+        )
+        # Nothing above finds an ATS, so discover_company falls through to
+        # the guessed-path list -- mock the rest so that fallback (which
+        # this test isn't about) doesn't hit an unmocked route.
+        for path in (
+            "/carrieres", "/recrutement", "/nous-rejoindre", "/rejoignez-nous",
+            "/emplois", "/join-us", "/careers/jobs", "/fr/carrieres",
+        ):
+            respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
+
+        discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert shared_route.call_count == 1
+
+
+def test_eight_attempt_cap_holds_across_both_depths(mock_client: httpx.Client) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_robots_allow("acme.example")
+        respx.get(website, path="/").mock(
+            return_value=httpx.Response(200, text='<a href="/nav-careers">Careers</a>')
+        )
+        respx.get(f"{website}/nav-careers").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    '<a href="/nav-careers/d1">Voir les offres</a>'
+                    '<a href="/nav-careers/d2">Voir les offres</a>'
+                ),
+            )
+        )
+        respx.get(f"{website}/nav-careers/d1").mock(
+            return_value=httpx.Response(200, text="<html>no ats</html>")
+        )
+        respx.get(f"{website}/nav-careers/d2").mock(
+            return_value=httpx.Response(200, text="<html>no ats</html>")
+        )
+        # root(1) + nav-careers(2) + d1(3) + d2(4) + these four(5-8) = 8, the cap.
+        for path in ("/careers", "/jobs", "/carrieres", "/recrutement"):
+            respx.get(f"{website}{path}").mock(
+                return_value=httpx.Response(200, text="<html>no ats</html>")
+            )
+        never_route = respx.get(f"{website}/nous-rejoindre").mock(
+            return_value=httpx.Response(200, text="must never be fetched, 9th attempt")
+        )
+
+        result = discover_company(website, "Acme", mock_client, TEST_USER_AGENT, sleep=lambda s: None)
+
+    assert result.confidence == "none"
+    assert never_route.call_count == 0
 
 
 # --- verify() / confidence promotion --------------------------------------

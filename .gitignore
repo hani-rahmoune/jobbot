@@ -3,7 +3,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+# M9: the deployed bot's state file must survive between GitHub Actions runs,
+# so poll.yml commits it back to the repo -- everything else ending in .db
+# (a dev/test scratch db, coverage artifacts) stays ignored.
 *.db
+!jobbot_state.db
 .env
 
 # jobbot.discover's default output: a machine-generated draft awaiting

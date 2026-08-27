@@ -28,6 +28,8 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
+import sqlite3
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -49,7 +51,7 @@ from jobbot.sources.base import JobSource, SourceError, registered_sources
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
-from jobbot.store import JobStore, is_publishable
+from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +257,115 @@ def run(
     return report
 
 
+def print_stats(stats: StoreStats) -> None:
+    """M9 B5: everything --stats prints. Pure formatting -- stats() already
+    did the querying, so this can't accidentally touch the database."""
+    print("=== jobbot state ===")
+    print(f"Total jobs:  {stats.total_jobs}")
+    print(f"Published:   {stats.published}")
+    print(f"Pending:     {stats.pending}")
+    print(f"Stale:       {stats.stale}")
+    print(f"Disappeared: {stats.disappeared}")
+
+    print("\nBy company:")
+    if stats.by_company:
+        for company, count in stats.by_company.items():
+            print(f"  {company}: {count}")
+    else:
+        print("  (none)")
+
+    print("\n10 most recently published:")
+    if stats.recently_published:
+        for title, company, published_at in stats.recently_published:
+            print(f"  [{company}] {title} ({published_at})")
+    else:
+        print("  (none)")
+
+
+# M9 D1: shape only -- confirms the value looks like a real Discord webhook
+# URL without ever printing it. Discord's own format is
+# https://discord.com/api/webhooks/{id}/{token} (discordapp.com still works
+# too, the pre-rebrand domain).
+_DISCORD_WEBHOOK_PATTERN = re.compile(r"^https://(discord|discordapp)\.com/api/webhooks/\d+/\S+$")
+
+
+def _looks_like_discord_webhook(url: str) -> bool:
+    return bool(_DISCORD_WEBHOOK_PATTERN.match(url))
+
+
+def run_check(config_dir: Path, filters_path: Path, settings_path: Path) -> bool:
+    """M9 D1: validates everything a real run would need without fetching or
+    posting -- config files parse, every company has a registered adapter,
+    the webhook env var is present and looks right (never logged), and the
+    state database opens at the current schema version. Prints one PASS/FAIL
+    line per check; returns True only if every check passed.
+    """
+    all_passed = True
+
+    def check(passed: bool, message: str) -> None:
+        nonlocal all_passed
+        print(f"{'PASS' if passed else 'FAIL'}: {message}")
+        if not passed:
+            all_passed = False
+
+    companies: list[CompanySource] = []
+    try:
+        companies = load_companies(config_dir)
+        check(True, f"{config_dir} parses ({len(companies)} enabled company entries)")
+    except ConfigError as exc:
+        check(False, f"{config_dir}: {exc}")
+
+    try:
+        load_filters(filters_path)
+        check(True, f"{filters_path} parses")
+    except FilterConfigError as exc:
+        check(False, f"{filters_path}: {exc}")
+
+    settings = None
+    try:
+        settings = load_settings(settings_path)
+        check(True, f"{settings_path} parses")
+    except SettingsError as exc:
+        check(False, f"{settings_path}: {exc}")
+
+    if companies:
+        adapters = {cls.name for cls in registered_sources()}
+        unregistered = sorted({c.ats for c in companies if c.ats not in adapters})
+        if unregistered:
+            check(
+                False,
+                f"every company has a registered adapter (no adapter for: {', '.join(unregistered)})",
+            )
+        else:
+            check(True, f"every company ({len(companies)}) has a registered adapter")
+
+    webhook_url = os.environ.get("JOBBOT_DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        check(False, "JOBBOT_DISCORD_WEBHOOK_URL is set")
+    elif not _looks_like_discord_webhook(webhook_url):
+        check(False, "JOBBOT_DISCORD_WEBHOOK_URL looks like a Discord webhook URL")
+    else:
+        check(True, "JOBBOT_DISCORD_WEBHOOK_URL is set and looks like a Discord webhook URL")
+
+    if settings is not None:
+        try:
+            with JobStore(settings.state_db_path) as store:
+                version = store.schema_version()
+            if version == SCHEMA_VERSION:
+                check(True, f"state database opens, schema version {version} (current)")
+            else:
+                check(
+                    False,
+                    f"state database schema version {version}, expected {SCHEMA_VERSION}",
+                )
+        except sqlite3.DatabaseError as exc:
+            check(False, f"state database opens: {exc}")
+    else:
+        check(False, "state database opens (skipped: settings.yaml did not load)")
+
+    return all_passed
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jobbot",
@@ -283,6 +394,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose", action="store_true", help="DEBUG-level logging instead of INFO.",
     )
+    parser.add_argument(
+        "--stats", action="store_true",
+        help="Print a summary of the state database and exit. Fetches nothing.",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Validate config, env, and state without fetching or posting. Exits 0 or 2.",
+    )
     return parser
 
 
@@ -294,6 +413,19 @@ def main() -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    if args.check:
+        return 0 if run_check(args.config_dir, args.filters, args.settings) else 2
+
+    if args.stats:
+        try:
+            settings = load_settings(args.settings)
+        except SettingsError as exc:
+            print(f"Configuration error: {exc}", file=sys.stderr)
+            return 2
+        with JobStore(settings.state_db_path) as store:
+            print_stats(store.stats())
+        return 0
 
     webhook_url = os.environ.get("JOBBOT_DISCORD_WEBHOOK_URL")
     error_webhook_url = os.environ.get("JOBBOT_DISCORD_ERROR_WEBHOOK_URL")
@@ -337,6 +469,13 @@ def main() -> int:
     )
     for error in report.errors:
         logger.warning("source error: %s", error)
+
+    # A stable, explicitly-for-machines line -- deliberately decoupled from
+    # the human-readable logger.info() line above so a future wording change
+    # there can't silently break the M9 deployment workflow's
+    # `grep jobbot_published_count=` (poll.yml), which builds the state
+    # commit message from this. Always stdout, regardless of --verbose.
+    print(f"jobbot_published_count={report.published}")
 
     if report.sources_attempted > 0 and report.sources_failed == report.sources_attempted:
         logger.error("all %d source(s) failed this run", report.sources_attempted)

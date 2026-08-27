@@ -35,6 +35,15 @@ carry a nav link, (2) actual careers-looking links harvested from that root
 page via careers_links(), and only then (3) the guessed-path list as a last
 resort. See careers_links() below and discover_company()'s docstring for the
 full order.
+
+M9 depth-2 fix: re-running against discovery/seeds/example.txt after the fix
+above still left most companies unresolved with the same pattern -- a careers
+link was found and followed, but that page turned out to be a culture/team
+page rather than the actual listings, with the real ATS link one hop further
+(Illuin's own "pourquoi-nous-rejoindre" page is the example). A depth-1 page
+that itself yields no ATS is now searched for its own careers-looking links,
+and up to 2 of those (listings-suggesting ones -- offres, postes, openings --
+preferred over generic ones) are followed as depth 2. No recursion past that.
 """
 
 from __future__ import annotations
@@ -239,12 +248,15 @@ def _normalize_for_careers_match(text: str) -> str:
     return normalize(text).replace("’", "'")
 
 
-def _looks_like_a_careers_link(href: str, link_text: str) -> bool:
+def _looks_like_a_careers_link(
+    href: str, link_text: str, extra_keywords: tuple[str, ...] = ()
+) -> bool:
+    keywords = _CAREERS_KEYWORDS + extra_keywords if extra_keywords else _CAREERS_KEYWORDS
     href_norm = _normalize_for_careers_match(href)
-    if any(keyword in href_norm for keyword in _CAREERS_KEYWORDS):
+    if any(keyword in href_norm for keyword in keywords):
         return True
     text_norm = _normalize_for_careers_match(link_text)
-    if any(keyword in text_norm for keyword in _CAREERS_KEYWORDS):
+    if any(keyword in text_norm for keyword in keywords):
         return True
     return any(phrase in text_norm for phrase in _CAREERS_TEXT_PHRASES)
 
@@ -253,16 +265,24 @@ def _bare_host(netloc: str) -> str:
     return netloc.removeprefix("www.")
 
 
-def careers_links(html: str, base_url: str) -> list[str]:
-    """Pure, no network. Absolute URLs of every anchor in `html` whose href
-    or visible text suggests a careers page -- same host as `base_url` (a
+def _iter_careers_link_candidates(
+    html: str, base_url: str, extra_keywords: tuple[str, ...] = ()
+) -> list[tuple[str, str]]:
+    """(absolute_url, link_text) for every anchor in `html` whose href or
+    visible text suggests a careers page -- same host as `base_url` (a
     leading "www." ignored on either side), or a known ATS's own host, since
-    a nav link often points straight at one. Deduplicated, document order
-    preserved, capped at MAX_CAREERS_LINKS.
+    a nav link often points straight at one. Deduplicated by URL, document
+    order preserved, capped at MAX_CAREERS_LINKS. careers_links() is a thin
+    wrapper over this that drops the text; kept separate because
+    discover_company's depth-2 listings-preference ranking (A3) needs the
+    text too, not just the URL, and needs a broader qualifying vocabulary
+    (`extra_keywords`) -- "voir-les-offres" or "nos-offres" alone wouldn't
+    otherwise pass the depth-1 careers-page filter at all, let alone rank
+    first in it.
     """
     base_host = _bare_host(urlsplit(base_url).netloc.lower())
     seen: set[str] = set()
-    links: list[str] = []
+    candidates: list[tuple[str, str]] = []
 
     for match in _ANCHOR_RE.finditer(html):
         href, inner_html = match.group(1), match.group(2)
@@ -270,7 +290,7 @@ def careers_links(html: str, base_url: str) -> list[str]:
             continue
 
         link_text = strip_html(inner_html)
-        if not _looks_like_a_careers_link(href, link_text):
+        if not _looks_like_a_careers_link(href, link_text, extra_keywords):
             continue
 
         absolute = urljoin(base_url, href)
@@ -284,11 +304,50 @@ def careers_links(html: str, base_url: str) -> list[str]:
         if absolute in seen:
             continue
         seen.add(absolute)
-        links.append(absolute)
-        if len(links) >= MAX_CAREERS_LINKS:
+        candidates.append((absolute, link_text))
+        if len(candidates) >= MAX_CAREERS_LINKS:
             break
 
-    return links
+    return candidates
+
+
+def careers_links(html: str, base_url: str) -> list[str]:
+    """Pure, no network. Absolute URLs of every anchor in `html` whose href
+    or visible text suggests a careers page -- same host as `base_url` (a
+    leading "www." ignored on either side), or a known ATS's own host, since
+    a nav link often points straight at one. Deduplicated, document order
+    preserved, capped at MAX_CAREERS_LINKS.
+    """
+    return [url for url, _text in _iter_careers_link_candidates(html, base_url)]
+
+
+# Depth-2 only (A3): among a depth-1 page's own careers-looking links, the
+# ones that look like they go straight to a listings page beat generic ones
+# ("Team culture" vs. "Voir les offres").
+_LISTINGS_KEYWORDS = (
+    "offres", "postes", "opportunit", "openings", "positions",
+    "all-jobs", "nos-offres", "voir-les-offres",
+)
+
+
+def _suggests_listings(url: str, text: str) -> bool:
+    return any(
+        keyword in _normalize_for_careers_match(value)
+        for value in (url, text)
+        for keyword in _LISTINGS_KEYWORDS
+    )
+
+
+def _ranked_depth2_candidates(html: str, base_url: str) -> list[str]:
+    """Depth-2 candidates from a depth-1 page: same extraction as
+    careers_links(), broadened to also qualify on _LISTINGS_KEYWORDS (a link
+    whose only signal is "voir-les-offres" wouldn't pass careers_links()'s
+    own narrower filter), with listings-suggesting links sorted ahead of
+    generic ones -- a stable sort, so document order is preserved within
+    each group."""
+    candidates = _iter_careers_link_candidates(html, base_url, extra_keywords=_LISTINGS_KEYWORDS)
+    ranked = sorted(candidates, key=lambda pair: not _suggests_listings(*pair))
+    return [url for url, _text in ranked]
 
 
 def discover_company(
@@ -304,15 +363,24 @@ def discover_company(
 
     1. the site root, always fetched first -- the one page guaranteed to
        exist and the one most likely to carry a nav link to careers.
-    2. actual careers-looking links harvested from that root page (see
-       careers_links()), fetched in order, detect_ats run on each.
+    2. actual careers-looking links harvested from that root page (depth 1,
+       see careers_links()), fetched in order, detect_ats run on each. A
+       depth-1 page that itself yields no ATS is searched in turn for its
+       own careers-looking links, and up to 2 of those (listings-suggesting
+       ones first, per A3 -- see _ranked_depth2_candidates()) are followed
+       as depth 2. No further recursion past depth 2 (A1): a depth-2 page
+       that yields no ATS is simply a dead end.
     3. only then, the guessed-path list (candidate_careers_urls()), as a
-       last resort for sites careers_links() found nothing on.
+       last resort for sites the link-following steps found nothing on.
 
-    Verifies the result unless `verify_result` is False. On failure, `notes`
-    records every URL attempted and what it returned, plus whether any
-    careers-looking links were found at all -- enough to debug from
-    unresolved.txt without re-running anything.
+    Every fetch at every depth counts against the same MAX_URL_ATTEMPTS
+    budget and the same per-call `fetched` set (A2), so a link back to an
+    already-fetched page is never fetched twice. Verifies the result unless
+    `verify_result` is False. On failure, `notes` records every URL
+    attempted and what it returned, in the exact order they were walked --
+    root, then depth 1, then depth 2 for whichever depth-1 page spawned it
+    -- plus whether any careers-looking links were found at all, so a
+    failure is debuggable straight from unresolved.txt.
     """
     robots = RobotsCache(client, user_agent)
     attempts: list[str] = []
@@ -364,17 +432,31 @@ def discover_company(
     if ats is not None:
         detected_ats, detected_identifier, detected_url = ats, identifier, root_url
 
-    # Step 2: careers-looking links found on that root page.
+    # Step 2: careers-looking links found on that root page (depth 1), and,
+    # for any depth-1 page that itself yields no ATS, up to 2 of its own
+    # careers-looking links (depth 2, A1) -- no further.
     links_found: list[str] = []
     if detected_ats is None and root_html is not None:
         links_found = careers_links(root_html, root_url)
         for link_url in links_found:
             if len(fetched) >= MAX_URL_ATTEMPTS:
                 break
-            ats, identifier, _ = try_url(link_url)
+
+            ats, identifier, depth1_html = try_url(link_url)
             if ats is not None:
                 detected_ats, detected_identifier, detected_url = ats, identifier, link_url
                 break
+
+            if depth1_html is not None:
+                for depth2_url in _ranked_depth2_candidates(depth1_html, link_url)[:2]:
+                    if len(fetched) >= MAX_URL_ATTEMPTS:
+                        break
+                    ats, identifier, _ = try_url(depth2_url)
+                    if ats is not None:
+                        detected_ats, detected_identifier, detected_url = ats, identifier, depth2_url
+                        break
+                if detected_ats is not None:
+                    break
 
     # Step 3: guessed paths, last resort.
     if detected_ats is None:

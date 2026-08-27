@@ -13,7 +13,7 @@ import respx
 from jobbot.config import CompanySource
 from jobbot.filters import FilterConfig, JobFilter, KeywordFilterConfig, LocationFilterConfig
 from jobbot.models import Job
-from jobbot.run import build_source, main, process_source, run
+from jobbot.run import build_source, main, process_source, run, run_check
 from jobbot.sources.base import JobSource, SourceError
 from jobbot.store import JobStore
 
@@ -707,3 +707,125 @@ def test_full_cycle_from_fixture_to_discord_payload(
 
     assert second_report.published == 0
     assert post_route.call_count == 1  # no additional POST beyond the first run
+
+
+# --- M9 B5: --stats ----------------------------------------------------
+
+
+def test_stats_flag_prints_summary_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "state.db"
+    with JobStore(db_path) as store:
+        job = Job(
+            company="Acme", title="Alternance Data Analyst", location="Paris",
+            contract_type="apprenticeship", url="https://acme.example/1",
+            source="greenhouse", external_id="1",
+        )
+        store.record(job, BASE)
+        store.mark_published(job.job_id, BASE)
+
+    paths = _write_run_config(tmp_path, companies=[], state_db_path=str(db_path))
+    monkeypatch.setattr(
+        sys, "argv", ["jobbot", "--stats", "--settings", str(paths["settings_path"])]
+    )
+
+    assert main() == 0
+
+    out = capsys.readouterr().out
+    assert "Total jobs:  1" in out
+    assert "Published:   1" in out
+    assert "Acme: 1" in out
+    assert "Alternance Data Analyst" in out
+
+
+def test_stats_flag_exits_2_on_settings_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing_settings = tmp_path / "does-not-exist.yaml"
+    monkeypatch.setattr(
+        sys, "argv", ["jobbot", "--stats", "--settings", str(missing_settings)]
+    )
+
+    assert main() == 2
+
+
+# --- M9 D1: --check ------------------------------------------------------
+
+
+def test_check_flag_all_pass_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("JOBBOT_DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/sometoken")
+    paths = _write_run_config(
+        tmp_path,
+        companies=[{"name": "Acme Corp", "ats": "greenhouse", "identifier": "acme"}],
+        state_db_path=str(tmp_path / "state.db"),
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "jobbot", "--check",
+            "--config-dir", str(paths["config_dir"]),
+            "--filters", str(paths["filters_path"]),
+            "--settings", str(paths["settings_path"]),
+        ],
+    )
+
+    assert main() == 0
+
+    out = capsys.readouterr().out
+    # config parses, filters parse, settings parse, adapter registered,
+    # webhook looks right, state database opens -- six checks total.
+    assert out.count("PASS:") == 6
+    assert "FAIL:" not in out
+
+
+def test_check_flag_fails_and_exits_2_when_webhook_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("JOBBOT_DISCORD_WEBHOOK_URL", raising=False)
+    paths = _write_run_config(
+        tmp_path, companies=[], state_db_path=str(tmp_path / "state.db")
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "jobbot", "--check",
+            "--config-dir", str(paths["config_dir"]),
+            "--filters", str(paths["filters_path"]),
+            "--settings", str(paths["settings_path"]),
+        ],
+    )
+
+    assert main() == 2
+
+    out = capsys.readouterr().out
+    assert "FAIL: JOBBOT_DISCORD_WEBHOOK_URL is set" in out
+
+
+def test_check_flag_never_prints_the_webhook_url_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret_url = "https://discord.com/api/webhooks/999999/super-secret-token-value"
+    monkeypatch.setenv("JOBBOT_DISCORD_WEBHOOK_URL", secret_url)
+    paths = _write_run_config(tmp_path, companies=[], state_db_path=str(tmp_path / "state.db"))
+
+    run_check(paths["config_dir"], paths["filters_path"], paths["settings_path"])
+
+    out = capsys.readouterr().out
+    assert secret_url not in out
+    assert "super-secret-token-value" not in out
+
+
+def test_check_flag_rejects_a_url_that_does_not_look_like_a_discord_webhook(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("JOBBOT_DISCORD_WEBHOOK_URL", "https://example.com/not-a-webhook")
+    paths = _write_run_config(tmp_path, companies=[], state_db_path=str(tmp_path / "state.db"))
+
+    passed = run_check(paths["config_dir"], paths["filters_path"], paths["settings_path"])
+
+    assert passed is False
+    out = capsys.readouterr().out
+    assert "FAIL: JOBBOT_DISCORD_WEBHOOK_URL looks like a Discord webhook URL" in out
