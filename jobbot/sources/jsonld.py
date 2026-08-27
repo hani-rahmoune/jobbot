@@ -20,7 +20,6 @@ import logging
 import re
 from typing import Any
 from urllib.parse import urlsplit
-from urllib.robotparser import RobotFileParser
 
 import httpx
 
@@ -28,6 +27,7 @@ from jobbot.models import Job
 from jobbot.sources.base import JobSource, SourceEmptyError, SourceError, SourceNotFoundError
 from jobbot.sources.classify import classify_contract_type
 from jobbot.sources.html_text import strip_html
+from jobbot.sources.robots import RobotsCache
 
 logger = logging.getLogger(__name__)
 
@@ -58,40 +58,7 @@ class JsonLdSource(JobSource):
                 f"jsonld: identifier must be a full https URL, got {identifier!r}"
             )
         super().__init__(identifier, company_name, client, user_agent)
-        self._robots_cache: dict[str, RobotFileParser | None] = {}
-
-    # --- robots.txt ------------------------------------------------------
-
-    def _robots_allows(self, url: str) -> bool:
-        parsed = urlsplit(url)
-        host = parsed.netloc
-        if host not in self._robots_cache:
-            self._robots_cache[host] = self._fetch_robots(parsed.scheme, host)
-        parser = self._robots_cache[host]
-        if parser is None:
-            return True  # 404 or fetch failure: treated as allowing (standard convention)
-        return parser.can_fetch(self.user_agent, url)
-
-    def _fetch_robots(self, scheme: str, host: str) -> RobotFileParser | None:
-        robots_url = f"{scheme}://{host}/robots.txt"
-        try:
-            response = self.client.get(
-                robots_url, headers={"User-Agent": self.user_agent}, timeout=TIMEOUT_SECONDS
-            )
-        except httpx.HTTPError:
-            logger.info("jsonld: robots.txt fetch failed for %s, treating as allowed", host)
-            return None
-
-        if response.status_code != 200:
-            logger.info(
-                "jsonld: robots.txt at %s returned HTTP %d, treating as allowed",
-                robots_url, response.status_code,
-            )
-            return None
-
-        parser = RobotFileParser()
-        parser.parse(response.text.splitlines())
-        return parser
+        self._robots = RobotsCache(client, user_agent)
 
     # --- fetch_raw() -------------------------------------------------------
 
@@ -100,7 +67,7 @@ class JsonLdSource(JobSource):
     ) -> tuple[list[dict], str | None]:
         url = self.identifier
 
-        if not self._robots_allows(url):
+        if not self._robots.allowed(url):
             raise SourceError(
                 f"jsonld: robots.txt disallows fetching {url} for {self.company_name}"
             )

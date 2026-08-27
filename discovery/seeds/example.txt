@@ -1,0 +1,36 @@
+# Example seed list for `python -m jobbot.discover`.
+#
+# Every website below was checked (curl, live) to actually resolve before
+# being added here -- see the M7 report for the verification notes and for
+# what running discovery against this exact file found. Weighted toward
+# Nantes / Loire-Atlantique per M7's brief, since M6's hand-typed hot.yaml
+# search found nothing there; found via French Tech Nantes / Atlanpole-style
+# directories (a human read the directory and copied these URLs by hand --
+# jobbot.discover itself never fetches from the directory, only from the
+# company site below or a detected ATS's own API, per CLAUDE.md rule 3).
+
+# --- Nantes / Loire-Atlantique -------------------------------------------
+Clever Cloud, https://www.clever-cloud.com
+Lengow, https://www.lengow.com
+Akeneo, https://www.akeneo.com
+Hublo, https://hublo.com
+Vade, https://www.vadesecure.com
+Dastra, https://www.dastra.eu
+Fitnext, https://www.fitnext.co
+Neoxam, https://www.neoxam.com
+Ubicast, https://www.ubicast.eu
+Sancare, https://www.sancare.fr
+Castiny, https://www.castiny.com
+Cuevr, https://www.cuevr.com
+Squaad, https://www.squaad.com
+
+# --- Paris / other French cities (diversity, several with a Nantes office) ---
+Illuin Technology, https://www.illuin.tech
+Dust, https://dust.tt
+H Company, https://www.hcompany.ai
+Photoroom, https://www.photoroom.com
+Inato, https://www.inato.com
+Akur8, https://www.akur8.com
+Deepki, https://www.deepki.com
+Theodo, https://www.theodo.fr
+Zenika, https://www.zenika.com
