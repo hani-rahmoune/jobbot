@@ -13,7 +13,9 @@ locations:
 contract_types: [internship, apprenticeship]
 
 keywords:
-  include: [data, donnees, analyste, statistiques, statistique, etudes,
+  include: [analyste de donnees, analyste data, chargee d etudes statistiques,
+            ingenieur donnees, science des donnees, apprentissage automatique,
+            intelligence artificielle, business intelligence,data, donnees, analyste, statistiques, statistique,
             machine learning, deep learning, ia, ai, llm, nlp, analytics,
             python, sql, data science, data engineer, mlops,
             computer vision, decisionnel, bi, big data]
