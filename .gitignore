@@ -13,5 +13,5 @@ __pycache__/
 # jobbot.discover's default output: a machine-generated draft awaiting
 # manual review, not curated config -- promote entries into companies/*.yaml
 # by hand instead of committing this directly.
-discovered.yaml
+/discovered.yaml
 unresolved.txt
