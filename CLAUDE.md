@@ -84,9 +84,11 @@ Every adapter subclasses `JobSource` and sets `name`, `tier`, `first_party`.
   the User-Agent string are injected through `__init__`.
 - No httpx exception may escape an adapter. Every failure surfaces as
   `SourceError` or a subclass.
-- Raise `SourceEmptyError` on zero results. Zero is a breakage signal, not an
-  empty result. A source that returned 40 jobs yesterday must not silently
-  return 0 today.
+- Zero results returns an empty list, not an exception. Whether zero means
+  breakage or a genuinely empty board depends on whether that source has ever
+  returned postings, which only the store knows, so the orchestrator decides via
+  source_health.has_seen_postings. `SourceEmptyError` remains for genuine parse
+  failures, such as a page containing no JobPosting at all.
 - Skip a malformed individual entry with a logged warning, do not crash the batch.
 - Timeout 15s, one retry on 5xx or timeout, honest User-Agent with a contact
   address, respect robots.txt on any non-API fetch.
