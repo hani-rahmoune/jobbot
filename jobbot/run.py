@@ -430,9 +430,14 @@ def main() -> int:
     webhook_url = os.environ.get("JOBBOT_DISCORD_WEBHOOK_URL")
     error_webhook_url = os.environ.get("JOBBOT_DISCORD_ERROR_WEBHOOK_URL")
 
-    if not webhook_url and not args.dry_run:
+    # --seed forces dry_run internally (run()'s effective_dry_run) and can
+    # never post regardless of what's in the environment, so it belongs in
+    # this exemption alongside --dry-run -- requiring the webhook for it
+    # blocked exactly the sequence docs/DEPLOY.md tells the user to follow:
+    # seed locally, *then* add the webhook secret.
+    if not webhook_url and not args.dry_run and not args.seed:
         print(
-            "JOBBOT_DISCORD_WEBHOOK_URL is required unless --dry-run is set.",
+            "JOBBOT_DISCORD_WEBHOOK_URL is required unless --dry-run or --seed is set.",
             file=sys.stderr,
         )
         return 2

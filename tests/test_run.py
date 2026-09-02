@@ -599,6 +599,29 @@ def test_main_exits_0_on_a_successful_dry_run(
     assert main() == 0
 
 
+def test_main_exits_0_on_seed_with_no_webhook_env_var(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # --seed forces dry_run internally and can never post regardless of the
+    # environment -- docs/DEPLOY.md's deploy sequence explicitly seeds
+    # *before* the webhook secret is ever added, so requiring the webhook
+    # here would block that documented sequence.
+    monkeypatch.delenv("JOBBOT_DISCORD_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("JOBBOT_DISCORD_ERROR_WEBHOOK_URL", raising=False)
+    paths = _write_run_config(tmp_path, companies=[])
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "jobbot", "--seed",
+            "--config-dir", str(paths["config_dir"]),
+            "--filters", str(paths["filters_path"]),
+            "--settings", str(paths["settings_path"]),
+        ],
+    )
+
+    assert main() == 0
+
+
 def test_main_exits_1_when_all_sources_fail(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

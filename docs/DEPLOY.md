@@ -67,6 +67,11 @@ after this one, and it's the file `.gitignore`'s `!jobbot_state.db`
 exception exists to let you commit (see `.gitignore` — every other `*.db` in
 the repo stays ignored).
 
+Note this command works with no `JOBBOT_DISCORD_WEBHOOK_URL` set in your
+local shell at all — `--seed` can never post regardless, so it's exempt from
+that requirement. You don't need to export the secret locally just to run
+this step; it only has to exist as the repo secret from step 3.
+
 **This step is not optional.** If you skip it and just turn the schedule on,
 the very first scheduled run finds an *empty* state database, and every
 currently-open posting across every configured company looks brand new —
