@@ -1,0 +1,35 @@
+# Discovered 2026-09-02 by jobbot's discovery CLI (jobbot/discover.py)
+# Source input file: discovery\seeds\batch1.txt
+# Every entry is tier: cold -- promote manually after review.
+
+
+- name: Ippon
+  ats: lever
+  identifier: ippon
+  enabled: true
+  tier: warm
+  tags: []
+- name: Dataiku
+  ats: greenhouse
+  identifier: dataiku
+  enabled: true
+  tier: warm
+  tags: []
+- name: Owkin
+  ats: ashby
+  identifier: owkin
+  enabled: true
+  tier: warm
+  tags: []
+- name: Skello
+  ats: lever
+  identifier: skello
+  enabled: true
+  tier: warm
+  tags: []
+- name: Brevo
+  ats: lever
+  identifier: brevo
+  enabled: true
+  tier: warm
+  tags: []
