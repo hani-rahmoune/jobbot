@@ -51,6 +51,7 @@ from jobbot.sources.base import JobSource, SourceError, registered_sources
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
+from jobbot.sources.workday import WorkdaySource  # noqa: F401
 from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 
 logger = logging.getLogger(__name__)

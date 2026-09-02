@@ -1,0 +1,52 @@
+# M8: large French corporates on Workday, the only enterprise ATS vendor
+# investigated (see the M8 report) whose public jobs endpoint is genuinely
+# unauthenticated and stateless -- every other vendor checked (iCIMS, SAP
+# SuccessFactors, Oracle Taleo, Cegid Talentsoft, Phenom People, Oleeo)
+# either requires OAuth/API-key auth or is a session-bound page, not a
+# public JSON endpoint, so none of those employers are listed here.
+#
+# Every entry below was verified live before being added: POSTed to its
+# real endpoint and confirmed real, current postings came back (not just an
+# HTTP 200). tier: warm, not hot -- these are huge boards (up to 2000+
+# postings per employer) and correspondingly expensive to poll often; the
+# per-source max_postings cap (default 2000) and the 20-page pagination cap
+# both apply regardless of tier.
+#
+# Workday identifier format: "{tenant}.wd{N}.{site}" -- see
+# jobbot/sources/workday.py's module docstring for what each part means.
+
+- name: Renault Group
+  ats: workday
+  identifier: alliancewd.wd3.renault-group-careers
+  tier: warm
+  tags: [automotive, cac40, workday]
+
+- name: Stellantis
+  ats: workday
+  identifier: stellantis.wd3.External_Career_Site_ID01
+  tier: warm
+  tags: [automotive, workday]
+
+- name: Sanofi
+  ats: workday
+  identifier: sanofi.wd3.SanofiCareers
+  tier: warm
+  tags: [pharma, cac40, workday]
+
+- name: Michelin
+  ats: workday
+  identifier: michelinhr.wd3.Michelin
+  tier: warm
+  tags: [manufacturing, cac40, workday]
+
+- name: Airbus
+  ats: workday
+  identifier: ag.wd3.Airbus
+  tier: warm
+  tags: [aerospace, cac40, workday]
+
+- name: Veolia
+  ats: workday
+  identifier: veoliauki.wd3.VESCareers
+  tier: warm
+  tags: [utilities, cac40, workday]

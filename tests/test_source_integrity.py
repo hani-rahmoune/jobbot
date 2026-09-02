@@ -12,7 +12,7 @@ from jobbot.settings import Settings
 # Importing every adapter module registers its JobSource subclass(es) via
 # JobSource.__init_subclass__ (see jobbot/sources/base.py). Add new adapter
 # imports here as they land.
-from jobbot.sources import ashby, greenhouse, jsonld, lever  # noqa: F401
+from jobbot.sources import ashby, greenhouse, jsonld, lever, workday  # noqa: F401
 from jobbot.sources.base import registered_sources
 
 JOBBOT_ROOT = Path(__file__).resolve().parent.parent / "jobbot"

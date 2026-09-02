@@ -1,0 +1,57 @@
+{
+  "total": 761,
+  "jobPostings": [
+    {
+      "title": "Internal Auditor - VIE Contract",
+      "externalPath": "/job/Morristown-NJ/Internal-Auditor---VIE-Contract_R2860110",
+      "timeType": "Full time",
+      "locationsText": "Morristown, NJ",
+      "postedOn": "Posted Today",
+      "bulletFields": ["R2860110"]
+    },
+    {
+      "title": "Production Pharmacist Professional",
+      "externalPath": "/job/Cairo/Production-Pharmacist-Professional_R2792938",
+      "timeType": "Full time",
+      "locationsText": "Cairo",
+      "postedOn": "Posted Today",
+      "bulletFields": ["R2792938"]
+    },
+    {
+      "title": "Data Analytics - Analyst",
+      "externalPath": "/job/Hyderabad/Data-Analytics---Analyst_R2868845",
+      "timeType": "Full time",
+      "locationsText": "Hyderabad",
+      "postedOn": "Posted Today",
+      "bulletFields": ["R2868845"]
+    },
+    {
+      "title": "Alternance Data Analyst (F/H)",
+      "externalPath": "/job/Paris/Alternance-Data-Analyst--F-H-_R9000001",
+      "timeType": "Full time",
+      "locationsText": "Paris, France",
+      "postedOn": "Posted 3 Days Ago",
+      "bulletFields": ["R9000001"]
+    },
+    {
+      "title": "Stage Data Science - 6 mois (F/H)",
+      "externalPath": "/job/Gentilly/Stage-Data-Science---6-mois--F-H-_R9000002",
+      "timeType": "Full time",
+      "locationsText": "Gentilly, France",
+      "postedOn": "Posted 5 Days Ago",
+      "bulletFields": ["R9000002"]
+    },
+    {
+      "title": "Field Sales Representative",
+      "externalPath": "/job/Remote-Location/Field-Sales-Representative_R9000003",
+      "timeType": "Full time",
+      "postedOn": "Posted Today",
+      "bulletFields": ["R9000003"]
+    },
+    {
+      "externalPath": "/job/Nowhere/Missing-Title_R9000004",
+      "locationsText": "Nowhere",
+      "postedOn": "Posted Today"
+    }
+  ]
+}

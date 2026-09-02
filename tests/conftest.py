@@ -63,6 +63,12 @@ def ashby_payload() -> dict[str, Any]:
     return json.loads((FIXTURES_DIR / "ashby_sample.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture
+def workday_payload() -> dict[str, Any]:
+    """One page's worth of the real response shape: {"total": N, "jobPostings": [...]}."""
+    return json.loads((FIXTURES_DIR / "workday_sample.json").read_text(encoding="utf-8"))
+
+
 @pytest.fixture(scope="session")
 def mock_client() -> httpx.Client:
     """One httpx.Client shared by the whole test session. respx replaces the

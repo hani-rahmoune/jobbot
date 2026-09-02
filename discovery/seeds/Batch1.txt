@@ -1,0 +1,93 @@
+# Seed batch 1, assembled from French tech directory listings.
+# Weighted toward Nantes / Loire-Atlantique, then Paris and other French cities.
+# Some URLs are inferred; discovery logs unreachable ones to unresolved.txt.
+
+# --- Nantes / Loire-Atlantique, product companies ---
+https://www.iadvize.com
+https://www.lengow.com
+https://www.akeneo.com
+https://www.obeo.fr
+https://www.myscript.com
+https://www.wiztivi.com
+https://www.microej.com
+https://www.qos-energy.com
+https://www.sparklane-group.com
+https://www.lhyfe.com
+https://screeb.app
+https://www.shiptify.com
+https://www.beesbusy.com
+https://www.nibelis.com
+https://www.octopize.io
+https://www.rosemood.fr
+https://www.speach.me
+https://www.10-vins.com
+https://www.klaxoon.com
+https://www.vulog.com
+
+# --- Nantes / Loire-Atlantique, services and data consultancies ---
+https://www.sigma.fr
+https://www.oceanet-technology.com
+https://www.asi.fr
+https://www.niji.fr
+https://www.conserto.fr
+https://www.a5sys.com
+https://www.apside.com
+https://www.smile.eu
+https://www.ippon.fr
+https://www.shodo.io
+https://www.sharingcloud.com
+https://www.talan.com
+https://www.celad.com
+https://www.cat-amania.com
+
+# --- Rennes / Brittany, adjacent to Nantes ---
+https://www.klaxoon.com
+https://www.energiency.com
+https://www.hemea.com
+https://www.acigna.com
+
+# --- Paris and elsewhere, data and AI product companies ---
+https://www.dataiku.com
+https://www.artefact.com
+https://www.golem.ai
+https://www.kayrros.com
+https://www.sinequa.com
+https://craft.ai
+https://www.dreamquark.com
+https://www.zelros.com
+https://www.cosmian.com
+https://www.deepki.com
+https://www.tinyclues.com
+https://www.toucantoco.com
+https://www.alkemics.com
+https://www.datategy.eu
+https://www.dastra.eu
+https://www.mediego.com
+https://www.sancare.fr
+https://www.implicity.com
+https://www.owkin.com
+https://www.therapixel.com
+https://www.cardiologs.com
+https://www.gleamer.ai
+https://www.incepto-medical.com
+https://www.milvue.com
+
+# --- French SaaS and fintech, mid-size ---
+https://www.lucca.fr
+https://www.partoo.co
+https://www.weglot.com
+https://www.agicap.com
+https://www.libeo.io
+https://www.skello.io
+https://www.combo.hr
+https://www.hublo.com
+https://www.livestorm.co
+https://www.zenchef.com
+https://www.brevo.com
+https://www.yousign.com
+https://www.pretto.fr
+https://www.shine.fr
+https://www.greenly.earth
+https://www.sweep.net
+https://www.ubble.ai
+https://www.mooncard.co
