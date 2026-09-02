@@ -52,10 +52,20 @@ from jobbot.settings import SettingsError, load_settings
 from jobbot.sources.ashby import AshbySource  # noqa: F401
 from jobbot.sources.base import JobSource, SourceError, registered_sources
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
+from jobbot.sources.jibe import JibeSource
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
+from jobbot.sources.smartrecruiters import SmartRecruitersSource
+from jobbot.sources.talentsoft import TalentsoftSource
 from jobbot.sources.workday import WorkdaySource
 from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
+
+# Adapter classes whose constructor accepts a `search_terms` kwarg (M9):
+# settings.search_terms is threaded through to exactly these, by identity,
+# not by name string -- every other adapter's constructor has no such
+# concept and must not be passed one. See each module's docstring for its
+# own confirmed server-side search parameter and real narrowing numbers.
+_SEARCH_CAPABLE_ADAPTERS = (WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource)
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +86,17 @@ def build_source(
     company: CompanySource,
     client: httpx.Client,
     user_agent: str,
-    workday_search_terms: list[str] | None = None,
+    search_terms: list[str] | None = None,
 ) -> JobSource:
     """Maps a company's `ats` string to its adapter class. Raises ValueError
     on an ats with no registered adapter -- config.py's KNOWN_ATS already
     keeps this from happening for a validly-loaded companies/*.yaml, but
     build_source doesn't assume that; it's a real check, not a formality.
 
-    workday_search_terms (M8b, from settings.yaml's workday_search_terms --
-    never hardcoded here, CLAUDE.md rule 4) is threaded through only to
-    WorkdaySource; every other adapter's constructor has no such concept.
+    search_terms (M8b/M9, from settings.yaml's search_terms -- never
+    hardcoded here, CLAUDE.md rule 4) is threaded through only to the
+    adapters in _SEARCH_CAPABLE_ADAPTERS; every other adapter's constructor
+    has no such concept.
     """
     adapters = {cls.name: cls for cls in registered_sources()}
     try:
@@ -96,13 +107,13 @@ def build_source(
             f"registered: {sorted(adapters)}"
         ) from None
 
-    if adapter_cls is WorkdaySource:
+    if adapter_cls in _SEARCH_CAPABLE_ADAPTERS:
         return adapter_cls(
             company.identifier,
             company.name,
             client,
             user_agent=user_agent,
-            search_terms=workday_search_terms,
+            search_terms=search_terms,
         )
     return adapter_cls(company.identifier, company.name, client, user_agent=user_agent)
 
@@ -253,7 +264,7 @@ def run(
             try:
                 source = build_source(
                     company, client, user_agent,
-                    workday_search_terms=settings.workday_search_terms,
+                    search_terms=settings.search_terms,
                 )
             except ValueError as exc:
                 report.sources_failed += 1

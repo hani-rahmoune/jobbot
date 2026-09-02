@@ -1,19 +1,32 @@
-# M8: large French corporates on Workday, the only enterprise ATS vendor
-# investigated (see the M8 report) whose public jobs endpoint is genuinely
-# unauthenticated and stateless -- every other vendor checked (iCIMS, SAP
-# SuccessFactors, Oracle Taleo, Cegid Talentsoft, Phenom People, Oleeo)
-# either requires OAuth/API-key auth or is a session-bound page, not a
-# public JSON endpoint, so none of those employers are listed here.
+# M8 found Workday genuinely public and unauthenticated; every other
+# enterprise ATS vendor checked that milestone (iCIMS, SAP SuccessFactors,
+# Oracle Taleo, Cegid Talentsoft, Phenom People, Oleeo) was rejected on the
+# strength of vendor documentation and a couple of quick probes.
 #
-# Every entry below was verified live before being added: POSTed to its
-# real endpoint and confirmed real, current postings came back (not just an
-# HTTP 200). tier: warm, not hot -- these are huge boards (up to 2000+
-# postings per employer) and correspondingly expensive to poll often; the
-# per-source max_postings cap (default 2000) and the 20-page pagination cap
-# both apply regardless of tier.
+# M9 re-investigated all of those properly -- checking what each real
+# careers page's OWN request actually does, not just what the vendor
+# documents -- and found three of them genuinely public and unauthenticated
+# after all: SmartRecruiters, iCIMS's "Jibe" career-site product
+# specifically (NOT "classic" iCIMS, which is still rejected -- see
+# jobbot/sources/jibe.py's module docstring), and Cegid Talentsoft (via its
+# server-rendered candidate-facing listing page, not its authenticated
+# REST API). SAP SuccessFactors, Phenom People, Oleeo, Avature, and Oracle
+# Taleo were all re-checked for M9 too and confirmed still not viable --
+# see the M9 report for the specific reason each one failed.
 #
-# Workday identifier format: "{tenant}.wd{N}.{site}" -- see
-# jobbot/sources/workday.py's module docstring for what each part means.
+# Every entry below was verified live before being added: fetched its real
+# endpoint/page and confirmed real, current postings came back (not just an
+# HTTP 200). tier: warm, not hot -- Workday boards in particular can run to
+# 2000+ postings per employer and are correspondingly expensive to poll
+# often; each adapter's own max_postings/page caps apply regardless of tier.
+#
+# Identifier formats (see each adapter module's own docstring for the full
+# reasoning):
+#   workday          "{tenant}.wd{N}.{site}"
+#   smartrecruiters  the bare SmartRecruiters company identifier
+#   jibe             the employer's Jibe domain, optionally "|{country}"
+#                    for a board that spans more than one country
+#   talentsoft       the employer's own Talentsoft subdomain (https URL)
 
 - name: Renault Group
   ats: workday
@@ -50,3 +63,61 @@
   identifier: veoliauki.wd3.VESCareers
   tier: warm
   tags: [utilities, cac40, workday]
+
+# M9: SmartRecruiters. Verified live 2026-09-02, total postings and the
+# server-side "alternance"/"stage" search narrowing (`q` query param) --
+# see jobbot/sources/smartrecruiters.py's module docstring for the
+# mechanism. Identifier is SmartRecruiters' own company token, the segment
+# right after careers.smartrecruiters.com/ on that employer's page.
+
+- name: Kiabi
+  ats: smartrecruiters
+  identifier: KIABI
+  tier: warm
+  tags: [retail, smartrecruiters]
+  # 267 total; "alternance" 8, "stage" 21
+
+- name: Boulanger
+  ats: smartrecruiters
+  identifier: Boulanger
+  tier: warm
+  tags: [retail, smartrecruiters]
+  # 209 total; "alternance" 13, "stage" 1
+
+- name: Ubisoft
+  ats: smartrecruiters
+  identifier: Ubisoft2
+  tier: warm
+  tags: [tech, smartrecruiters]
+  # 284 total; "alternance" 4, "stage" 4
+
+# M9: iCIMS Jibe. Verified live 2026-09-02. AXA's board is genuinely
+# global under one domain, hence the "|France" country filter in the
+# identifier -- see jobbot/sources/jibe.py's module docstring.
+
+- name: AXA
+  ats: jibe
+  identifier: https://careers.axa.com|France
+  tier: warm
+  tags: [insurance, cac40, jibe]
+  # ~560-600 France postings; "alternance" (keywords param) 11
+
+# M9: Cegid Talentsoft. Verified live 2026-09-02, total postings and the
+# server-side "alternance"/"stage" search narrowing (`Keywords` query
+# param) -- see jobbot/sources/talentsoft.py's module docstring, including
+# why LCL and CACIB render two different (but both supported) listing
+# templates despite being the same Credit Agricole group and platform.
+
+- name: Credit Agricole CIB
+  ats: talentsoft
+  identifier: https://casa-cacib-recrute.talent-soft.com
+  tier: warm
+  tags: [banking, cac40, talentsoft]
+  # 313 total; "alternance" 45, "stage" 37, "apprentissage" 9
+
+- name: LCL
+  ats: talentsoft
+  identifier: https://casa-lcl-recrute.talent-soft.com
+  tier: warm
+  tags: [banking, talentsoft]
+  # 193 total; "alternance" 2, "stage" 1, "apprentissage" 2

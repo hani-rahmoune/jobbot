@@ -69,6 +69,19 @@ def workday_payload() -> dict[str, Any]:
     return json.loads((FIXTURES_DIR / "workday_sample.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture
+def smartrecruiters_payload() -> dict[str, Any]:
+    """One page's worth of the real response shape:
+    {"offset": N, "limit": N, "totalFound": N, "content": [...]}."""
+    return json.loads((FIXTURES_DIR / "smartrecruiters_sample.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def jibe_payload() -> dict[str, Any]:
+    """One page's worth of the real response shape: {"totalCount": N, "jobs": [{"data": {...}}]}."""
+    return json.loads((FIXTURES_DIR / "jibe_sample.json").read_text(encoding="utf-8"))
+
+
 @pytest.fixture(scope="session")
 def mock_client() -> httpx.Client:
     """One httpx.Client shared by the whole test session. respx replaces the

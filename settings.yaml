@@ -28,14 +28,14 @@ ghost_stale_after_days: 90
 # exception for this specific file once the bot runs on GitHub Actions.
 state_db_path: "jobbot_state.db"
 
-# M8b: narrows every Workday source's own search server-side (one query per
-# term, deduplicated by posting) instead of paginating through the whole
-# board -- see jobbot/sources/workday.py's module docstring for the real
-# numbers behind this list. "stage" is noisier than the others (Workday's
-# search does some kind of fuzzy/stemmed matching, not just a substring
-# check, so it pulls in some unrelated titles too) but still surfaces real
-# "stage"-titled postings the others miss, and the noise costs nothing more
-# than a few extra title-classified-as-"other" rows -- kept in. Empty this
-# list to fall back to plain full-board pagination (capped, still bounded,
-# just truncated at large boards -- see the module docstring).
-workday_search_terms: [alternance, stage, apprenticeship, internship]
+# M8b/M9: narrows every search-capable source's own search server-side (one
+# query per term, deduplicated by posting) instead of paginating through the
+# whole board -- see jobbot/sources/{workday,smartrecruiters,jibe,talentsoft}.py's
+# module docstrings for the real per-vendor numbers behind this list. "stage"
+# is noisier than the others on some vendors (fuzzy/stemmed matching pulls in
+# a few unrelated titles too) but still surfaces real "stage"-titled postings
+# the others miss, and the noise costs nothing more than a few extra
+# title-classified-as-"other" rows -- kept in. Empty this list to fall back
+# to plain full-board pagination on every vendor (capped, still bounded,
+# just truncated at the largest boards -- see each module's docstring).
+search_terms: [alternance, stage, apprenticeship, internship]

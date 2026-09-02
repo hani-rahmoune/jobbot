@@ -1,0 +1,323 @@
+"""Cegid Talentsoft adapter -- server-rendered HTML listing pages.
+
+M9 coverage expansion. Talentsoft's real "Recruiting Front Office" REST API
+(developers.cegid.com) requires a Token issued to the employer's own
+integration partners -- not a public, unauthenticated surface, so it isn't
+used here. What every Talentsoft-powered career site DOES expose publicly,
+with no auth and no JavaScript required, is its own candidate-facing job
+listing page: confirmed live against Credit Agricole CIB
+(casa-cacib-recrute.talent-soft.com, 313 open postings) and its sibling LCL
+(casa-lcl-recrute.talent-soft.com, 193), whose `/job/list-of-all-jobs.aspx`
+page returns real job listings directly in the server-rendered HTML --
+title, a direct link, and a contract-type/location badge list -- paginated.
+robots.txt on both tenants carries no rules at all (everything allowed);
+checked live via RobotsCache, same as jsonld.py, before every fetch.
+
+This is the "HTML-only listing page" path CLAUDE.md's Part A allows
+specifically because the content is genuinely server-rendered, not injected
+by JavaScript -- confirmed by fetching the page with plain httpx (no JS
+engine) and finding the job titles and links already present in the
+response body.
+
+Talentsoft's own front-end framework renders every tenant's listing page
+from one of two generic, interchangeable templates -- confirmed live: CACIB
+defaults to the "card" template (`ts-offer-card` CSS classes, 100 postings
+per page), LCL to the "list" template (`ts-offer-list-item`, only 10 per
+page) -- admin-selected per tenant, with no request parameter found to
+force one or the other. Both are Talentsoft's own product markup (not
+something each employer custom-builds) and share the same structural shape
+(a title link followed by one `<ul class="ts-offer-...">` of badges), so
+_OFFER_CARD_RE matches either, and page size is measured from page 1's own
+result count rather than assumed as a platform-wide constant (see
+_fetch_all_pages) -- necessary specifically because that count is NOT
+uniform across tenants.
+
+Pagination is NOT the usual "stop at a short page" heuristic used by every
+other adapter in this codebase -- confirmed live that requesting a page
+number past the real last page does not return an empty/short page, it
+silently WRAPS AROUND and re-serves page 1. Instead, the real total posting
+count is parsed from the page's own "Nombre de resultats : N offre(s)" text
+(present on every page, including page 1), and combined with page 1's own
+measured size to compute exactly how many more pages to request -- no
+guessing, and immune to the wraparound. If that count can't be found for
+some reason, only page 1 is used and a warning is logged, rather than risk
+silently re-scraping page 1's own postings under the belief they're new.
+
+Server-side search (M9's search_terms): the listing page's own free-text
+search box posts through full ASP.NET view-state machinery, but a much
+simpler `?Keywords=` GET parameter was confirmed live to produce the exact
+same server-side narrowing (CACIB: 313 -> 45 for "alternance"; LCL: 193 ->
+2) without any of that -- same optional, config-driven, one-query-per-term,
+dedup design as every other adapter's search_terms.
+"""
+
+from __future__ import annotations
+
+import html
+import logging
+import math
+import re
+from urllib.parse import urlsplit
+
+import httpx
+
+from jobbot.models import Job
+from jobbot.sources.base import JobSource, SourceError, SourceNotFoundError
+from jobbot.sources.classify import classify_contract_type
+from jobbot.sources.robots import RobotsCache
+
+logger = logging.getLogger(__name__)
+
+TIMEOUT_SECONDS = 15.0
+MAX_ATTEMPTS = 2  # one request, one retry on 5xx/timeout, per page
+# Real per-page size varies by tenant template (100 or 10 -- see module
+# docstring), so unlike every other adapter these caps bound page COUNT,
+# not a fixed posting count: 40 pages is 4000 postings on the "card"
+# template but only 400 on the "list" one -- comfortably above both real
+# tenants measured for this milestone (313 and 193).
+MAX_PAGES = 40  # plain full-board crawl, no search_terms
+MAX_PAGES_PER_SEARCH_TERM = 10  # one narrowed query, far fewer results regardless of template
+
+# Every Talentsoft career site is served in French for this project (the
+# whole project's own scope is the French market -- see CLAUDE.md's opening
+# line), via Microsoft's standard Locale ID query parameter -- an
+# internationalization protocol constant, not a location/keyword search
+# term, so it's fixed here the same way Workday's `limit` field name is
+# fixed rather than user-configurable.
+_LCID_FRENCH = 1036
+
+_LIST_PATH = "/job/list-of-all-jobs.aspx"
+
+_TOTAL_OFFERS_RE = re.compile(r"(\d+)\s*offre")
+
+# Talentsoft ships two interchangeable listing templates, admin-selected per
+# tenant, not by URL parameter (confirmed live: Credit Agricole CIB defaults
+# to the "card" template -- CSS classes prefixed `ts-offer-card` -- while
+# Credit Agricole's own LCL subsidiary, same platform, defaults to the
+# "list" template -- `ts-offer-list-item` -- and no query parameter was
+# found live to force one or the other). Both wrap a posting's title link
+# and its contract-type/location badge list in the same structural shape,
+# just under different class-name prefixes, so one regex matches either.
+_OFFER_CARD_RE = re.compile(
+    r'ts-offer-(?:card|list-item)__title-link[^>]*\shref="(?P<href>[^"]*)"[^>]*>'
+    r"\s*(?P<title>[^<]+?)\s*</a>.*?"
+    r'<ul\s+class="ts-offer-[^"]*"[^>]*>\s*(?P<badges>.*?)</ul>',
+    re.DOTALL,
+)
+_BADGE_LI_RE = re.compile(r"<li[^>]*>([^<]*)</li>")
+_TRAILING_ID_RE = re.compile(r"_(\d+)\.aspx$")
+
+
+class TalentsoftSource(JobSource):
+    name = "talentsoft"
+    tier = 1
+    first_party = True
+
+    def __init__(
+        self,
+        identifier: str,
+        company_name: str,
+        client: httpx.Client,
+        user_agent: str,
+        search_terms: list[str] | None = None,
+    ) -> None:
+        parsed = urlsplit(identifier)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError(
+                f"talentsoft: identifier must be an https URL "
+                f"(e.g. 'https://casa-cacib-recrute.talent-soft.com'), got {identifier!r}"
+            )
+        super().__init__(identifier, company_name, client, user_agent)
+        self._base_url = identifier.rstrip("/")
+        self._robots = RobotsCache(client, user_agent)
+        self.search_terms = list(search_terms) if search_terms else []
+
+    def fetch_raw(
+        self, etag: str | None = None, last_modified: str | None = None
+    ) -> tuple[list[dict], str | None]:
+        list_url = f"{self._base_url}{_LIST_PATH}"
+        if not self._robots.allowed(list_url):
+            raise SourceError(
+                f"talentsoft: robots.txt disallows fetching {list_url} for {self.company_name}"
+            )
+
+        # M8b: zero results is a valid, non-failing outcome (see
+        # run.process_source()) -- both branches below may legitimately
+        # return an empty list.
+        if self.search_terms:
+            return self._fetch_by_search_terms(list_url), None
+
+        return self._fetch_all_pages(list_url, keywords="", max_pages=MAX_PAGES), None
+
+    def _fetch_by_search_terms(self, list_url: str) -> list[dict]:
+        postings_by_id: dict[str, dict] = {}
+        for term in self.search_terms:
+            for posting in self._fetch_all_pages(
+                list_url, keywords=term, max_pages=MAX_PAGES_PER_SEARCH_TERM
+            ):
+                key = posting["id"]
+                if key in postings_by_id:
+                    continue
+                postings_by_id[key] = posting
+        return list(postings_by_id.values())
+
+    def _fetch_all_pages(self, list_url: str, keywords: str, max_pages: int) -> list[dict]:
+        # max_pages has no default deliberately: MAX_PAGES is read at each
+        # call site instead (see fetch_raw()) rather than bound once here at
+        # function-definition time, so a test's monkeypatch of the module
+        # constant actually takes effect (a `= MAX_PAGES` default parameter
+        # value is frozen at import time and would silently ignore it).
+        first_page_html = self._fetch_page_html(list_url, page=1, keywords=keywords)
+        postings = _extract_offer_cards(first_page_html, self._base_url)
+
+        total = _extract_total_offers(first_page_html)
+        if total is None:
+            if postings:
+                logger.warning(
+                    "talentsoft: %s (%s) could not find a total-results count, "
+                    "only page 1 was fetched -- more postings may exist",
+                    self.company_name, self.identifier,
+                )
+            return postings
+
+        # Page size is NOT a fixed platform constant -- confirmed live that
+        # it differs by which of Talentsoft's two listing templates a tenant
+        # is configured with (100 for the "card" template, 10 for the
+        # "list" template -- see _OFFER_CARD_RE's docstring), with no
+        # request parameter found to force one. Rather than hardcode either
+        # number and risk under-paginating a "list"-template tenant, the
+        # actual size of page 1 IS the page size for every subsequent page
+        # of this same query.
+        if total <= 0 or not postings:
+            return postings
+        page_size = len(postings)
+
+        total_pages = min(max_pages, math.ceil(total / page_size))
+        if math.ceil(total / page_size) > max_pages:
+            logger.warning(
+                "talentsoft: %s (%s) keywords %r hit the %d-page cap, "
+                "more postings may exist (total reported: %d)",
+                self.company_name, self.identifier, keywords, max_pages, total,
+            )
+
+        for page in range(2, total_pages + 1):
+            page_html = self._fetch_page_html(list_url, page=page, keywords=keywords)
+            postings.extend(_extract_offer_cards(page_html, self._base_url))
+
+        return postings
+
+    def _fetch_page_html(self, list_url: str, page: int, keywords: str) -> str:
+        """One page, with the same retry-once-on-5xx/timeout contract every
+        other adapter follows -- applied per page, since a mid-pagination
+        blip shouldn't discard pages already fetched."""
+        params: dict[str, str | int] = {"LCID": _LCID_FRENCH, "page": page}
+        if keywords:
+            params["Keywords"] = keywords
+        headers = {"User-Agent": self.user_agent}
+
+        response: httpx.Response | None = None
+        error: Exception | None = None
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = self.client.get(
+                    list_url, params=params, headers=headers, timeout=TIMEOUT_SECONDS
+                )
+            except httpx.TimeoutException as exc:
+                error = exc
+                logger.warning(
+                    "talentsoft: timeout fetching %s (page %d) for %s (attempt %d/%d)",
+                    list_url, page, self.company_name, attempt, MAX_ATTEMPTS,
+                )
+                continue
+
+            if response.status_code >= 500:
+                error = SourceError(
+                    f"talentsoft: {self.company_name} ({list_url}) "
+                    f"returned HTTP {response.status_code}"
+                )
+                logger.warning(
+                    "talentsoft: HTTP %d fetching %s (page %d) for %s (attempt %d/%d)",
+                    response.status_code, list_url, page, self.company_name, attempt, MAX_ATTEMPTS,
+                )
+                continue
+
+            error = None
+            break
+
+        if error is not None:
+            raise SourceError(
+                f"talentsoft: failed to fetch {list_url} (page {page}) for {self.company_name} "
+                f"after {MAX_ATTEMPTS} attempts"
+            ) from error
+
+        # Never let an httpx exception escape this method -- every failure
+        # mode here is one of our own SourceError subclasses.
+        if response.status_code == 404:
+            raise SourceNotFoundError(
+                f"talentsoft: board not found for {self.company_name} "
+                f"({self.identifier}): {list_url} returned 404"
+            )
+        if response.status_code >= 400:
+            raise SourceError(
+                f"talentsoft: {self.company_name} ({list_url}) "
+                f"returned HTTP {response.status_code}"
+            )
+
+        return response.text
+
+    def parse(self, raw: list[dict]) -> list[Job]:
+        jobs: list[Job] = []
+        for entry in raw:
+            try:
+                jobs.append(self._parse_entry(entry))
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "talentsoft: skipping malformed entry for %s: %s", self.company_name, exc
+                )
+        return jobs
+
+    def _parse_entry(self, entry: dict) -> Job:
+        title = entry["title"]
+        external_id = entry["id"]
+        if not external_id:
+            raise ValueError("id is empty")
+        badges = entry.get("badges") or []
+        employment_hint = badges[0] if badges else ""
+        location = ", ".join(badges[1:]) if len(badges) > 1 else ""
+        contract_type = classify_contract_type(title, "", employment_hint)
+
+        return Job(
+            company=self.company_name,
+            title=title,
+            location=location,
+            contract_type=contract_type,
+            url=entry["url"],
+            posted_at=None,  # not present on the listing page; no per-job fetch, see docstring
+            description="",
+            source=self.name,
+            external_id=external_id,
+        )
+
+
+def _extract_total_offers(page_html: str) -> int | None:
+    match = _TOTAL_OFFERS_RE.search(page_html)
+    return int(match.group(1)) if match else None
+
+
+def _extract_offer_cards(page_html: str, base_url: str) -> list[dict]:
+    postings = []
+    for match in _OFFER_CARD_RE.finditer(page_html):
+        href = match.group("href")
+        title = html.unescape(match.group("title")).strip()
+        badges = [html.unescape(b).strip() for b in _BADGE_LI_RE.findall(match.group("badges"))]
+        id_match = _TRAILING_ID_RE.search(href)
+        postings.append(
+            {
+                "id": id_match.group(1) if id_match else href,
+                "title": title,
+                "url": base_url + href if href.startswith("/") else href,
+                "badges": badges,
+            }
+        )
+    return postings

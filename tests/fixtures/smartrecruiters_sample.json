@@ -1,0 +1,61 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 5,
+  "content": [
+    {
+      "id": "744000147037200",
+      "name": "Executive Assistant (F/H/NB)",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-09-02T16:09:51.107Z",
+      "location": {
+        "city": "Paris",
+        "region": "IDF",
+        "country": "fr",
+        "fullLocation": "Paris, IDF, France"
+      },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" }
+    },
+    {
+      "id": "744000147024510",
+      "name": "Alternant Conseiller de Vente (h/f/nb) BTS",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-09-02T15:29:16.028Z",
+      "location": {
+        "city": "Villers-Semeuse",
+        "region": "Grand Est",
+        "country": "fr",
+        "fullLocation": "Villers-Semeuse, Grand Est, France"
+      },
+      "typeOfEmployment": { "id": "intern", "label": "Intern" },
+      "experienceLevel": { "id": "internship", "label": "Internship" }
+    },
+    {
+      "id": "744000147031370",
+      "name": "Charge de formation RH (H/F/NB) - Stage 6 mois",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-09-02T16:00:31.328Z",
+      "location": {
+        "city": "France",
+        "region": "Bas Rhin",
+        "country": "fr",
+        "fullLocation": "France, Bas Rhin, France"
+      },
+      "typeOfEmployment": { "id": "intern", "label": "Intern" },
+      "experienceLevel": { "id": "internship", "label": "Internship" }
+    },
+    {
+      "id": "synthetic-0004",
+      "name": "Livreur Installateur H/F",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "location": { "country": "fr" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" }
+    },
+    {
+      "id": "synthetic-0005",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "location": { "city": "Nowhere", "fullLocation": "Nowhere" }
+    }
+  ]
+}

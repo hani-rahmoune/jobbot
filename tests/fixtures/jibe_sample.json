@@ -1,0 +1,62 @@
+{
+  "totalCount": 5,
+  "jobs": [
+    {
+      "data": {
+        "slug": "24583",
+        "req_id": "24583",
+        "title": "Alternance - Assistant Audiovisuel",
+        "description": "<p>En tant qu'alternant(e) au sein de notre &eacute;quipe audiovisuelle, vous participerez &agrave; l'exploitation des r&eacute;gies et &agrave; la pr&eacute;paration technique des &eacute;v&eacute;nements.</p>",
+        "full_location": "PARIS, France",
+        "country_code": "FR",
+        "employment_type": "INTERN",
+        "apply_url": "https://careers-fr-axa.icims.com/jobs/24583/login",
+        "posted_date": "2026-07-17T15:07:00+0000"
+      }
+    },
+    {
+      "data": {
+        "slug": "22723",
+        "req_id": "22723",
+        "title": "Stage - Souscription Assurance Construction (F/H)",
+        "description": "<p>Au sein de l'&eacute;quipe souscription, vous accompagnez le suivi des dossiers d'assurance construction pendant 6 mois.</p>",
+        "full_location": "PARIS, France",
+        "country_code": "FR",
+        "employment_type": "INTERN",
+        "apply_url": "https://careers-fr-axa.icims.com/jobs/22723/login",
+        "posted_date": "2026-06-18T06:37:00+0000"
+      }
+    },
+    {
+      "data": {
+        "slug": "24601",
+        "req_id": "24601",
+        "title": "Conseiller Commercial (F/H) - CDI",
+        "description": "<p>Vous developpez et fidelisez un portefeuille de clients particuliers.</p>",
+        "full_location": "Lons-le-Saunier, France",
+        "country_code": "FR",
+        "employment_type": "REGULAR",
+        "apply_url": "https://careers-fr-axa.icims.com/jobs/24601/login",
+        "posted_date": "2026-08-27T10:00:00+0000"
+      }
+    },
+    {
+      "data": {
+        "slug": "24610",
+        "req_id": "24610",
+        "title": "Actuarial Analyst",
+        "city": "Wroclaw",
+        "country_code": "PL",
+        "employment_type": "REGULAR",
+        "apply_url": "https://careers-fr-axa.icims.com/jobs/24610/login"
+      }
+    },
+    {
+      "data": {
+        "title": "Missing slug entry",
+        "full_location": "Nowhere",
+        "employment_type": "REGULAR"
+      }
+    }
+  ]
+}

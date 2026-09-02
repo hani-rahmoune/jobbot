@@ -19,9 +19,19 @@ from pydantic import BaseModel, Field, ValidationError
 # README/M6 report, so no "taleez" adapter exists to register here; M8:
 # workday -- of the enterprise vendors investigated for M8, only Workday had
 # a genuinely public, unauthenticated, stateless endpoint, see the M8
-# report). An identifier not in this set is a config typo or an ATS we
-# haven't built, either way it's an error, not a silent skip.
-KNOWN_ATS = frozenset({"greenhouse", "lever", "ashby", "jsonld", "workday"})
+# report; M9: smartrecruiters, jibe, talentsoft -- a broader re-investigation
+# of the vendors M8 rejected found these three genuinely public and
+# unauthenticated after all (an earlier pass judged them too quickly on
+# vendor documentation alone rather than checking what each real careers
+# page's own request actually does -- see the M9 report). iCIMS's OTHER,
+# older product ("classic" iCIMS, distinct from Jibe) plus Phenom People,
+# Oleeo, Avature, Taleo, and SAP SuccessFactors were all re-investigated for
+# M9 too and confirmed still not viable -- see the M9 report for why each
+# one specifically). An identifier not in this set is a config typo or an
+# ATS we haven't built, either way it's an error, not a silent skip.
+KNOWN_ATS = frozenset(
+    {"greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe", "talentsoft"}
+)
 
 
 class ConfigError(Exception):

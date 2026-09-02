@@ -337,29 +337,46 @@ def test_build_source_returns_the_right_adapter(mock_client: httpx.Client) -> No
     assert source.company_name == "Acme Corp"
 
 
-def test_build_source_threads_workday_search_terms_into_workday_source(
-    mock_client: httpx.Client,
+@pytest.mark.parametrize(
+    ("ats", "identifier", "expected_cls_path"),
+    [
+        ("workday", "sanofi.wd3.SanofiCareers", "jobbot.sources.workday.WorkdaySource"),
+        ("smartrecruiters", "KIABI", "jobbot.sources.smartrecruiters.SmartRecruitersSource"),
+        ("jibe", "https://careers.axa.com", "jobbot.sources.jibe.JibeSource"),
+        (
+            "talentsoft",
+            "https://casa-cacib-recrute.talent-soft.com",
+            "jobbot.sources.talentsoft.TalentsoftSource",
+        ),
+    ],
+)
+def test_build_source_threads_search_terms_into_every_search_capable_adapter(
+    mock_client: httpx.Client, ats: str, identifier: str, expected_cls_path: str
 ) -> None:
-    from jobbot.sources.workday import WorkdaySource
+    import importlib
 
-    company = CompanySource(name="Sanofi", ats="workday", identifier="sanofi.wd3.SanofiCareers")
+    module_path, _, cls_name = expected_cls_path.rpartition(".")
+    expected_cls = getattr(importlib.import_module(module_path), cls_name)
+
+    company = CompanySource(name="Some Corp", ats=ats, identifier=identifier)
     source = build_source(
         company, mock_client, "jobbot-test/0.1",
-        workday_search_terms=["alternance", "stage"],
+        search_terms=["alternance", "stage"],
     )
 
-    assert isinstance(source, WorkdaySource)
+    assert isinstance(source, expected_cls)
     assert source.search_terms == ["alternance", "stage"]
 
 
-def test_build_source_ignores_workday_search_terms_for_other_adapters(
+def test_build_source_ignores_search_terms_for_adapters_that_do_not_support_it(
     mock_client: httpx.Client,
 ) -> None:
-    # A non-Workday adapter has no such concept -- passing the kwarg through
-    # must not raise or otherwise leak into an unrelated adapter's construction.
+    # A non-search-capable adapter has no such concept -- passing the kwarg
+    # through must not raise or otherwise leak into an unrelated adapter's
+    # construction.
     source = build_source(
         _company(), mock_client, "jobbot-test/0.1",
-        workday_search_terms=["alternance"],
+        search_terms=["alternance"],
     )
     assert not hasattr(source, "search_terms")
 
