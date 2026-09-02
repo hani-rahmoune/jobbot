@@ -41,7 +41,10 @@ If a prompt conflicts with this file, follow this file and flag the conflict.
 
 6. **Tests never touch the network.** Every test runs offline from recorded
    fixtures. A conftest guard fails any test that opens a real connection. The
-   suite must stay under five seconds or it stops being run.
+   suite must stay under fifteen seconds or it stops being run. The number is a
+   means, not a goal: it exists so the suite is cheap enough to run constantly.
+   Do not chase it by weakening tests.
+   
 
 ## Load-bearing tests
 
