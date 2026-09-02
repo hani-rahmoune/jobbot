@@ -189,10 +189,11 @@ def test_process_source_records_verdicts_and_returns_only_publishable_jobs() -> 
         store.record(known_job, BASE)  # pre-existing, so its next sighting is KNOWN
 
         source = _FakeSource(jobs=[new_job, known_job])
-        publishable, fetched_count, verdict_counts = process_source(
+        publishable, fetched_count, verdict_counts, ok = process_source(
             source, _company(), _permissive_filter(), store, BASE + timedelta(minutes=20)
         )
 
+    assert ok is True
     assert fetched_count == 2
     assert [job.external_id for job, _kw in publishable] == ["1"]
     assert verdict_counts == {"NEW": 1, "KNOWN": 1}
@@ -206,10 +207,11 @@ def test_process_source_on_source_error_records_failure_and_returns_empty() -> N
         source = _FakeSource(error=SourceError("boom"))
         company = _company()
 
-        publishable, fetched_count, verdict_counts = process_source(
+        publishable, fetched_count, verdict_counts, ok = process_source(
             source, company, _permissive_filter(), store, BASE + timedelta(days=1)
         )
 
+        assert ok is False
         assert publishable == []
         assert fetched_count == 0
         assert verdict_counts == {}
@@ -231,10 +233,11 @@ def test_known_verdict_job_is_not_returned_as_publishable() -> None:
     with JobStore(":memory:") as store:
         store.record(job, BASE)
         source = _FakeSource(jobs=[job])
-        publishable, _fetched, verdict_counts = process_source(
+        publishable, _fetched, verdict_counts, ok = process_source(
             source, _company(), _permissive_filter(), store, BASE + timedelta(days=1)
         )
 
+    assert ok is True
     assert publishable == []
     assert verdict_counts == {"KNOWN": 1}
 
@@ -252,10 +255,11 @@ def test_new_job_failing_filter_is_not_published_and_never_stored() -> None:
 
     with JobStore(":memory:") as store:
         source = _FakeSource(jobs=[job])
-        publishable, fetched_count, verdict_counts = process_source(
+        publishable, fetched_count, verdict_counts, ok = process_source(
             source, _company(), restrictive_filter, store, BASE
         )
 
+        assert ok is True
         assert publishable == []
         assert fetched_count == 1
         assert verdict_counts == {}  # store.record() was never called for it
@@ -266,6 +270,52 @@ def test_new_job_failing_filter_is_not_published_and_never_stored() -> None:
             "SELECT COUNT(*) FROM jobs WHERE job_id = ?", (job.job_id,)
         ).fetchone()[0]
         assert count == 0
+
+
+# --- M8b: legitimately-empty boards are not failures ------------------
+
+
+def test_first_ever_zero_records_success_and_does_not_fail_the_source() -> None:
+    with JobStore(":memory:") as store:
+        source = _FakeSource(jobs=[])
+        publishable, fetched_count, verdict_counts, ok = process_source(
+            source, _company(), _permissive_filter(), store, BASE
+        )
+
+        assert ok is True
+        assert publishable == []
+        assert fetched_count == 0
+        assert verdict_counts == {}
+        assert store.unhealthy_sources(threshold=1, now=BASE) == []
+        assert store.has_seen_postings(source.name, "Acme Corp") is False
+
+
+def test_zero_after_a_previous_non_zero_success_records_a_failure() -> None:
+    job = _make_job(external_id="1")
+    with JobStore(":memory:") as store:
+        # A real posting was seen once, establishing has_seen_postings.
+        non_empty_source = _FakeSource(jobs=[job])
+        process_source(non_empty_source, _company(), _permissive_filter(), store, BASE)
+        assert store.has_seen_postings(non_empty_source.name, "Acme Corp") is True
+
+        empty_source = _FakeSource(jobs=[])
+        publishable, fetched_count, verdict_counts, ok = process_source(
+            empty_source, _company(), _permissive_filter(), store, BASE + timedelta(days=1)
+        )
+
+        assert ok is False
+        assert publishable == []
+        assert fetched_count == 0
+        assert verdict_counts == {}
+        unhealthy = store.unhealthy_sources(threshold=1, now=BASE + timedelta(days=1))
+        assert (empty_source.name, "Acme Corp", 1) in unhealthy
+
+        # The previously-seen job must not be marked disappeared over a
+        # fetch process_source() doesn't trust.
+        row = store._conn.execute(
+            "SELECT disappeared_at FROM jobs WHERE job_id = ?", (job.job_id,)
+        ).fetchone()
+        assert row["disappeared_at"] is None
 
 
 def test_build_source_raises_on_unknown_ats(mock_client: httpx.Client) -> None:
@@ -285,6 +335,33 @@ def test_build_source_returns_the_right_adapter(mock_client: httpx.Client) -> No
     assert isinstance(source, GreenhouseSource)
     assert source.identifier == "acme"
     assert source.company_name == "Acme Corp"
+
+
+def test_build_source_threads_workday_search_terms_into_workday_source(
+    mock_client: httpx.Client,
+) -> None:
+    from jobbot.sources.workday import WorkdaySource
+
+    company = CompanySource(name="Sanofi", ats="workday", identifier="sanofi.wd3.SanofiCareers")
+    source = build_source(
+        company, mock_client, "jobbot-test/0.1",
+        workday_search_terms=["alternance", "stage"],
+    )
+
+    assert isinstance(source, WorkdaySource)
+    assert source.search_terms == ["alternance", "stage"]
+
+
+def test_build_source_ignores_workday_search_terms_for_other_adapters(
+    mock_client: httpx.Client,
+) -> None:
+    # A non-Workday adapter has no such concept -- passing the kwarg through
+    # must not raise or otherwise leak into an unrelated adapter's construction.
+    source = build_source(
+        _company(), mock_client, "jobbot-test/0.1",
+        workday_search_terms=["alternance"],
+    )
+    assert not hasattr(source, "search_terms")
 
 
 # --- run() ---------------------------------------------------------------
@@ -646,6 +723,31 @@ def test_main_exits_1_when_all_sources_fail(
         exit_code = main()
 
     assert exit_code == 1
+
+
+def test_run_does_not_count_a_legitimately_empty_source_as_failed(tmp_path: Path) -> None:
+    paths = _write_run_config(
+        tmp_path, companies=[{"name": "Acme Corp", "ats": "greenhouse", "identifier": "acme"}]
+    )
+
+    with respx.mock:
+        respx.get(GREENHOUSE_BOARD.format(identifier="acme")).mock(
+            return_value=httpx.Response(200, json={"jobs": []})
+        )
+        report = run(
+            config_dir=paths["config_dir"],
+            filters_path=paths["filters_path"],
+            settings_path=paths["settings_path"],
+            webhook_url="https://discord.com/api/webhooks/1/test",
+            error_webhook_url=None,
+            now=BASE,
+            dry_run=True,
+        )
+
+    assert report.sources_attempted == 1
+    assert report.sources_failed == 0
+    assert report.errors == []
+    assert report.jobs_fetched == 0
 
 
 # --- THE END TO END TEST, load bearing ------------------------------------

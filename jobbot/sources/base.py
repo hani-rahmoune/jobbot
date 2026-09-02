@@ -29,7 +29,14 @@ class SourceError(Exception):
 
 
 class SourceEmptyError(SourceError):
-    """Raised by fetch_raw() when the source's payload contains zero items."""
+    """Raised by fetch_raw() when zero items signals a genuine extraction
+    failure rather than a legitimately empty board -- jsonld.py's "the page
+    has no JobPosting block at all" is the one case left that still raises
+    this (M8b). Every other adapter now returns an empty list on zero
+    results instead: "this board is broken" versus "this small company
+    simply has no open roles right now" isn't a call an adapter can make on
+    its own, only the orchestrator can, by consulting the store's history
+    (see jobbot/run.py's process_source() and JobStore.has_seen_postings())."""
 
 
 class SourceNotFoundError(SourceError):
@@ -64,7 +71,8 @@ class JobSource(ABC):
     ) -> tuple[list[dict], str | None]:
         """Fetch the raw listing payload. Returns (raw_items, new_etag).
 
-        Raises SourceEmptyError when the payload contains zero items.
+        An empty list is a legitimate result (M8b) -- most adapters return
+        one rather than raising; see SourceEmptyError.
         """
 
     @abstractmethod

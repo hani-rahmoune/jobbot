@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
 from conftest import TEST_USER_AGENT
 
 import jobbot.sources.workday as workday_module
-from jobbot.sources.base import SourceEmptyError, SourceError, SourceNotFoundError
+from jobbot.sources.base import SourceError, SourceNotFoundError
 from jobbot.sources.workday import PAGE_SIZE, WorkdaySource
 
 BOARD_URL = "https://sanofi.wd3.myworkdayjobs.com/wday/cxs/sanofi/SanofiCareers/jobs"
@@ -141,14 +143,19 @@ def test_fetch_on_mocked_200_returns_expected_count_and_stops_at_one_page(
     assert route.call_count == 1  # fewer than PAGE_SIZE results: no second page fetched
 
 
-def test_fetch_raises_source_empty_error_on_empty_postings(mock_client: httpx.Client) -> None:
+def test_fetch_returns_an_empty_list_rather_than_raising_on_zero_results(
+    mock_client: httpx.Client,
+) -> None:
+    # M8b: zero results is no longer automatically a failure -- see
+    # jobbot/run.py's process_source() for where that decision now lives.
     source = _make_source(mock_client)
     with respx.mock:
         respx.post(BOARD_URL).mock(
             return_value=httpx.Response(200, json={"total": 0, "jobPostings": []})
         )
-        with pytest.raises(SourceEmptyError):
-            source.fetch()
+        jobs = source.fetch()
+
+    assert jobs == []
 
 
 def test_fetch_retries_once_on_500_then_succeeds(mock_client: httpx.Client) -> None:
@@ -276,3 +283,115 @@ def test_fetch_stops_at_max_postings_and_logs_a_warning(
     assert len(jobs) == 150  # truncated mid-page, from 8 pages * 20/page fetched
     assert route.call_count == 8
     assert any("max_postings=150" in record.message for record in caplog.records)
+
+
+# --- search_terms (M8b) --------------------------------------------------
+
+
+def test_no_search_terms_configured_is_the_default(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    assert source.search_terms == []
+
+
+def test_search_terms_sends_one_query_per_term_with_matching_search_text(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client, search_terms=["alternance", "stage"])
+    alternance_page = {"total": 2, "jobPostings": _make_postings(2, start=0)}
+    stage_page = {"total": 1, "jobPostings": _make_postings(1, start=100)}
+    with respx.mock:
+        route = respx.post(BOARD_URL)
+        route.side_effect = [
+            httpx.Response(200, json=alternance_page),
+            httpx.Response(200, json=stage_page),
+        ]
+        jobs = source.fetch()
+
+    assert route.call_count == 2
+    sent_terms = [json.loads(call.request.content)["searchText"] for call in route.calls]
+    assert sent_terms == ["alternance", "stage"]
+    assert len(jobs) == 3  # 2 + 1, no overlap
+
+
+def test_search_terms_deduplicates_postings_across_terms_by_external_path(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client, search_terms=["alternance", "stage"])
+    # Role-1_R1 is returned by both terms -- the same posting, found twice.
+    alternance_page = {"total": 2, "jobPostings": _make_postings(2, start=0)}
+    stage_page = {"total": 2, "jobPostings": _make_postings(2, start=1)}
+    with respx.mock:
+        route = respx.post(BOARD_URL)
+        route.side_effect = [
+            httpx.Response(200, json=alternance_page),
+            httpx.Response(200, json=stage_page),
+        ]
+        jobs = source.fetch()
+
+    external_ids = {job.external_id for job in jobs}
+    assert len(jobs) == 3  # Role-0, Role-1 (deduped across both terms), Role-2
+    assert external_ids == {
+        "/job/Loc/Role-0_R0",
+        "/job/Loc/Role-1_R1",
+        "/job/Loc/Role-2_R2",
+    }
+
+
+def test_search_terms_paginates_each_term_independently(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client, search_terms=["alternance", "stage"])
+    partial = PAGE_SIZE // 2
+    alternance_page1 = {
+        "total": PAGE_SIZE + partial, "jobPostings": _make_postings(PAGE_SIZE, start=0)
+    }
+    alternance_page2 = {
+        "total": PAGE_SIZE + partial, "jobPostings": _make_postings(partial, start=PAGE_SIZE),
+    }
+    stage_page = {"total": 1, "jobPostings": _make_postings(1, start=10_000)}
+    with respx.mock:
+        route = respx.post(BOARD_URL)
+        route.side_effect = [
+            httpx.Response(200, json=alternance_page1),
+            httpx.Response(200, json=alternance_page2),
+            httpx.Response(200, json=stage_page),
+        ]
+        jobs = source.fetch()
+
+    assert route.call_count == 3  # 2 pages for "alternance", 1 (short) page for "stage"
+    assert len(jobs) == PAGE_SIZE + partial + 1
+
+
+def test_search_terms_stops_at_its_own_per_term_page_cap_and_logs_a_warning(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(workday_module, "MAX_PAGES_PER_SEARCH_TERM", 2)
+    source = _make_source(mock_client, search_terms=["alternance"], max_postings=1_000_000)
+    page1 = {"total": 999_999, "jobPostings": _make_postings(PAGE_SIZE, start=0)}
+    page2 = {"total": 999_999, "jobPostings": _make_postings(PAGE_SIZE, start=PAGE_SIZE)}
+    with respx.mock:
+        route = respx.post(BOARD_URL)
+        route.side_effect = [httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+        with caplog.at_level("WARNING"):
+            jobs = source.fetch()
+
+    assert len(jobs) == 2 * PAGE_SIZE
+    assert route.call_count == 2  # MAX_PAGES_PER_SEARCH_TERM=2, both pages full
+    assert any("page cap" in record.message for record in caplog.records)
+
+
+def test_search_terms_stops_across_terms_once_max_postings_reached(
+    mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = _make_source(
+        mock_client, search_terms=["alternance", "stage", "internship"], max_postings=2
+    )
+    alternance_page = {"total": 2, "jobPostings": _make_postings(2, start=0)}
+    with respx.mock:
+        route = respx.post(BOARD_URL).mock(return_value=httpx.Response(200, json=alternance_page))
+        with caplog.at_level("WARNING"):
+            jobs = source.fetch()
+
+    assert len(jobs) == 2
+    # Stopped after the first term already reached max_postings=2 -- "stage"
+    # and "internship" are never queried.
+    assert route.call_count == 1
+    assert any("max_postings=2" in record.message for record in caplog.records)

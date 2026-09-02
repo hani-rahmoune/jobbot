@@ -39,6 +39,13 @@ class Settings(BaseModel):
     # M5: where the orchestrator's JobStore lives. See CLAUDE.md's M9
     # deployment note about the .gitignore exception this file needs.
     state_db_path: str = "jobbot_state.db"
+    # M8b: narrows a Workday source's own search server-side instead of
+    # paginating through the whole board -- see jobbot/sources/workday.py's
+    # module docstring. Empty by default (no narrowing, the old
+    # plain-pagination behavior) since CLAUDE.md rule 4 forbids a hardcoded
+    # search term anywhere in jobbot/; the actual terms belong here, in
+    # settings.yaml, same as every other user search preference.
+    workday_search_terms: list[str] = Field(default_factory=list)
 
 
 def _env_overrides() -> dict[str, object]:

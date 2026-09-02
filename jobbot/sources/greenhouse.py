@@ -17,7 +17,7 @@ import logging
 import httpx
 
 from jobbot.models import Job
-from jobbot.sources.base import JobSource, SourceEmptyError, SourceError, SourceNotFoundError
+from jobbot.sources.base import JobSource, SourceError, SourceNotFoundError
 from jobbot.sources.classify import classify_contract_type
 from jobbot.sources.html_text import strip_html
 
@@ -90,11 +90,11 @@ class GreenhouseSource(JobSource):
         payload = response.json()
         jobs = payload.get("jobs", [])
 
-        if not jobs:
-            raise SourceEmptyError(
-                f"greenhouse: {self.company_name} ({self.identifier}) returned zero jobs"
-            )
-
+        # M8b: zero results used to raise SourceEmptyError here, but that
+        # can't tell "this board is broken" from "this small company simply
+        # has no open roles right now" -- only the store's history can, so
+        # that decision now happens in run.process_source() instead. An
+        # empty list is a perfectly valid, non-failing return value.
         return jobs, None
 
     def parse(self, raw: list[dict]) -> list[Job]:

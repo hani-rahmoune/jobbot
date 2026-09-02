@@ -7,17 +7,20 @@ publisher.py) precisely so that everything except this file can be tested
 without any of those real things -- main() is the one place that wires them
 together for a real run.
 
-Two deliberate deviations from this milestone's literal API sketch, both
-needed to make RunReport (also specified by this milestone) actually
-fillable without reaching into JobStore's private internals from here:
+Deliberate deviations from this milestone's literal API sketch, all needed
+to make RunReport (also specified by this milestone) actually fillable
+without reaching into JobStore's private internals from here:
 
-- process_source() returns a 3-tuple, not 2: (publishable, fetched_count,
-  verdict_counts). verdict_counts (a dict of JobVerdict name -> count, for
-  every job that passed the filter this call) is what lets run() populate
-  RunReport.verdicts accurately. Without it, the only verdict run() could
-  ever see is "NEW" (since that's the only one implied by a job appearing in
-  `publishable`), and RunReport.verdicts would be permanently wrong for
-  KNOWN/BUMP/REPOST/RESURRECTION/SEEDED.
+- process_source() returns a 4-tuple, not 2: (publishable, fetched_count,
+  verdict_counts, ok). verdict_counts (a dict of JobVerdict name -> count,
+  for every job that passed the filter this call) is what lets run()
+  populate RunReport.verdicts accurately. Without it, the only verdict
+  run() could ever see is "NEW" (since that's the only one implied by a job
+  appearing in `publishable`), and RunReport.verdicts would be permanently
+  wrong for KNOWN/BUMP/REPOST/RESURRECTION/SEEDED. `ok` is M8b's fix: once a
+  legitimately empty board became a valid fetch() outcome,
+  `fetched_count == 0` stopped being a usable failure signal on its own, so
+  process_source reports success/failure explicitly instead.
 - process_source() takes `seed: bool = False`. store.record() needs a
   per-job seed_mode flag to produce SEEDED verdicts correctly, and
   process_source is where record() is called.
@@ -51,7 +54,7 @@ from jobbot.sources.base import JobSource, SourceError, registered_sources
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
-from jobbot.sources.workday import WorkdaySource  # noqa: F401
+from jobbot.sources.workday import WorkdaySource
 from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 
 logger = logging.getLogger(__name__)
@@ -69,11 +72,20 @@ class RunReport:
     errors: list[str] = field(default_factory=list)
 
 
-def build_source(company: CompanySource, client: httpx.Client, user_agent: str) -> JobSource:
+def build_source(
+    company: CompanySource,
+    client: httpx.Client,
+    user_agent: str,
+    workday_search_terms: list[str] | None = None,
+) -> JobSource:
     """Maps a company's `ats` string to its adapter class. Raises ValueError
     on an ats with no registered adapter -- config.py's KNOWN_ATS already
     keeps this from happening for a validly-loaded companies/*.yaml, but
     build_source doesn't assume that; it's a real check, not a formality.
+
+    workday_search_terms (M8b, from settings.yaml's workday_search_terms --
+    never hardcoded here, CLAUDE.md rule 4) is threaded through only to
+    WorkdaySource; every other adapter's constructor has no such concept.
     """
     adapters = {cls.name: cls for cls in registered_sources()}
     try:
@@ -83,6 +95,15 @@ def build_source(company: CompanySource, client: httpx.Client, user_agent: str) 
             f"No adapter registered for ats {company.ats!r} (company {company.name!r}); "
             f"registered: {sorted(adapters)}"
         ) from None
+
+    if adapter_cls is WorkdaySource:
+        return adapter_cls(
+            company.identifier,
+            company.name,
+            client,
+            user_agent=user_agent,
+            search_terms=workday_search_terms,
+        )
     return adapter_cls(company.identifier, company.name, client, user_agent=user_agent)
 
 
@@ -93,7 +114,7 @@ def process_source(
     store: JobStore,
     now: datetime,
     seed: bool = False,
-) -> tuple[list[tuple[Job, list[str]]], int, dict[str, int]]:
+) -> tuple[list[tuple[Job, list[str]]], int, dict[str, int], bool]:
     """Fetch, filter, record, mark_absent, record_success/record_failure for
     one company's source.
 
@@ -105,22 +126,53 @@ def process_source(
     from the store's point of view it was never seen, so it's genuinely NEW
     again if it still exists on the board.
 
-    mark_absent() is only ever called on the success path, with exactly the
+    mark_absent() is only ever called on a genuine success, with exactly the
     job_ids this fetch actually returned -- deliberately every fetched
     job_id, not just the ones that passed the filter, since "the employer
     took this posting down" and "our filters don't want this posting" are
-    different facts. A failed fetch must never mark a company's postings
-    disappeared just because we couldn't ask.
+    different facts. A failed fetch (including a suspicious empty one, see
+    below) must never mark a company's postings disappeared just because we
+    couldn't trust what we got.
 
     On SourceError: the failure is recorded via store.record_failure() and
-    this returns ([], 0, {}) rather than raising -- one source's outage must
-    never abort the run for every other source.
+    this returns ([], 0, {}, False) rather than raising -- one source's
+    outage must never abort the run for every other source.
+
+    M8b: fetch() returning an empty list is no longer automatically a
+    failure (adapters raise SourceEmptyError only where jsonld's genuine
+    parse-failure case still applies). Zero jobs here is disambiguated with
+    the store's own history: if this source+company has ever previously
+    returned postings (has_seen_postings), a sudden zero is treated as a
+    failure -- a board that had postings yesterday and none today is almost
+    always broken, not emptied out overnight. If it has never returned
+    postings, zero is recorded as an ordinary success; some small companies'
+    boards are just legitimately, permanently quiet, and failing them on
+    every single poll forever (inflating consecutive_failures for a
+    condition that was never going to change) helps no one.
+
+    The bool is the caller's success/failure signal (A4): fetched_count == 0
+    stopped being a valid proxy for "this failed" the moment a legitimate
+    empty board became a possible outcome.
     """
     try:
         jobs = source.fetch()
     except SourceError as exc:
         store.record_failure(source.name, company.name, str(exc), now)
-        return [], 0, {}
+        return [], 0, {}, False
+
+    if not jobs:
+        if store.has_seen_postings(source.name, company.name):
+            store.record_failure(
+                source.name, company.name,
+                "returned zero postings after previously returning some -- "
+                "likely broken, not empty",
+                now,
+            )
+            return [], 0, {}, False
+
+        store.record_success(source.name, company.name, 0, now)
+        store.mark_absent(source.name, company.name, set(), now)
+        return [], 0, {}, True
 
     store.record_success(source.name, company.name, len(jobs), now)
 
@@ -141,7 +193,7 @@ def process_source(
 
     store.mark_absent(source.name, company.name, seen_job_ids, now)
 
-    return publishable, len(jobs), verdict_counts
+    return publishable, len(jobs), verdict_counts, True
 
 
 def run(
@@ -199,22 +251,28 @@ def run(
             report.sources_attempted += 1
 
             try:
-                source = build_source(company, client, user_agent)
+                source = build_source(
+                    company, client, user_agent,
+                    workday_search_terms=settings.workday_search_terms,
+                )
             except ValueError as exc:
                 report.sources_failed += 1
                 report.errors.append(str(exc))
                 continue
 
-            publishable, fetched_count, verdict_counts = process_source(
+            publishable, fetched_count, verdict_counts, ok = process_source(
                 source, company, job_filter, store, now, seed=seed
             )
             report.jobs_fetched += fetched_count
 
-            if fetched_count == 0:
+            if not ok:
                 # process_source() already recorded the failure in
                 # source_health; surface a bit of that context here rather
                 # than duplicating the exact error text (which the fixed
-                # process_source -> run() boundary doesn't carry).
+                # process_source -> run() boundary doesn't carry). Note this
+                # is no longer keyed off fetched_count == 0 (A4): a
+                # legitimately empty board also fetches 0 and is NOT a
+                # failure, so `ok` (not the count) is the actual signal.
                 consecutive = {
                     (s, c): n for s, c, n in store.unhealthy_sources(threshold=1, now=now)
                 }.get((source.name, company.name))

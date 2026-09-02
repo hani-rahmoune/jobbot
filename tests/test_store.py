@@ -95,8 +95,49 @@ CREATE TABLE source_health (
 );
 """
 
+# v2: has publish_pending on jobs (the v1->v2 migration's own addition) but
+# not yet has_seen_postings on source_health (that's v3, M8b).
+_V2_SCHEMA = """
+CREATE TABLE schema_version (version INTEGER NOT NULL);
+CREATE TABLE jobs (
+    job_id TEXT PRIMARY KEY,
+    content_fingerprint TEXT NOT NULL,
+    company TEXT NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT,
+    title TEXT NOT NULL,
+    location TEXT NOT NULL,
+    contract_type TEXT NOT NULL,
+    url TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source_posted_at TEXT,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    published_at TEXT,
+    disappeared_at TEXT,
+    is_stale INTEGER NOT NULL DEFAULT 0,
+    last_verdict TEXT NOT NULL,
+    publish_pending INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE fingerprints (
+    content_fingerprint TEXT PRIMARY KEY,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    origin_job_id TEXT NOT NULL
+);
+CREATE TABLE source_health (
+    source TEXT NOT NULL,
+    company TEXT NOT NULL,
+    last_success_at TEXT,
+    last_failure_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    PRIMARY KEY (source, company)
+);
+"""
 
-def test_opening_a_v1_database_migrates_it_to_v2(tmp_path: Path) -> None:
+
+def test_opening_a_v1_database_migrates_it_all_the_way_to_current(tmp_path: Path) -> None:
     path = tmp_path / "v1.db"
     conn = sqlite3.connect(str(path))
     conn.executescript(_V1_SCHEMA)
@@ -105,16 +146,37 @@ def test_opening_a_v1_database_migrates_it_to_v2(tmp_path: Path) -> None:
     conn.close()
 
     with JobStore(path) as store:
-        assert SCHEMA_VERSION == 2
+        assert SCHEMA_VERSION == 3
         row = store._conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 2
+        assert row["version"] == 3
 
-        # publish_pending exists and defaults to 0 -- no error, no NULLs.
+        # publish_pending (v1->v2) exists and defaults to 0 -- no error, no NULLs.
         store.record(_make_job(), BASE)
         job_row = store._conn.execute(
             "SELECT publish_pending FROM jobs LIMIT 1"
         ).fetchone()
         assert job_row["publish_pending"] == 1
+
+        # has_seen_postings (v2->v3) exists and is usable right away.
+        store.record_success("greenhouse", "Acme", 5, BASE)
+        assert store.has_seen_postings("greenhouse", "Acme") is True
+
+
+def test_opening_a_v2_database_migrates_it_to_v3(tmp_path: Path) -> None:
+    path = tmp_path / "v2.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(_V2_SCHEMA)
+    conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+    conn.commit()
+    conn.close()
+
+    with JobStore(path) as store:
+        row = store._conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == 3
+
+        # has_seen_postings exists, defaults to 0 -- no error, no NULLs.
+        store.record_failure("greenhouse", "Acme", "boom", BASE)
+        assert store.has_seen_postings("greenhouse", "Acme") is False
 
 
 # --- round-trip ----------------------------------------------------------
@@ -493,6 +555,37 @@ def test_source_health_three_failures_then_success_resets_and_respects_threshold
             "greenhouse", "Acme Corp", job_count=10, now=BASE + timedelta(days=4)
         )
         assert store.unhealthy_sources(threshold=1, now=BASE + timedelta(days=4)) == []
+
+
+def test_has_seen_postings_is_false_with_no_history_at_all() -> None:
+    with JobStore(":memory:") as store:
+        assert store.has_seen_postings("greenhouse", "Acme Corp") is False
+
+
+def test_has_seen_postings_stays_false_after_only_zero_count_successes() -> None:
+    with JobStore(":memory:") as store:
+        store.record_success("greenhouse", "Acme Corp", job_count=0, now=BASE)
+        assert store.has_seen_postings("greenhouse", "Acme Corp") is False
+
+
+def test_has_seen_postings_latches_true_and_a_later_zero_does_not_clear_it() -> None:
+    with JobStore(":memory:") as store:
+        store.record_success("greenhouse", "Acme Corp", job_count=5, now=BASE)
+        assert store.has_seen_postings("greenhouse", "Acme Corp") is True
+
+        store.record_success(
+            "greenhouse", "Acme Corp", job_count=0, now=BASE + timedelta(days=1)
+        )
+        assert store.has_seen_postings("greenhouse", "Acme Corp") is True
+
+
+def test_has_seen_postings_persists_across_store_reopens(tmp_path: Path) -> None:
+    path = tmp_path / "state.db"
+    with JobStore(path) as store:
+        store.record_success("greenhouse", "Acme Corp", job_count=5, now=BASE)
+
+    with JobStore(path) as reopened:
+        assert reopened.has_seen_postings("greenhouse", "Acme Corp") is True
 
 
 # --- THE FLOOD TEST, load bearing --------------------------------------

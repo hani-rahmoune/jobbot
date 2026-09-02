@@ -59,6 +59,49 @@ bounds worst-case time (~20-25s observed) for a huge board today;
 `max_postings` stays as specified as the second, independent safety net
 (e.g. if Workday ever raises the per-page limit), even though it isn't the
 binding constraint for any of the six sources confirmed for this milestone.
+This is MAX_PAGES's behavior only when `search_terms` is empty (below).
+
+M8 Part B, server-side search (`search_terms`): paginating an entire huge
+board is exactly what made Michelin and Airbus each take 100+ seconds
+(measured directly for the M8 report). Workday's own `searchText` body
+field genuinely narrows results server-side, confirmed live against
+Sanofi, Michelin, and Airbus: "alternance" cuts Sanofi's 764-posting total
+to 6, Michelin's 719 to 99, Airbus's 2000+ to 12; "apprenticeship" and
+"internship" behave similarly (14/0/139 and 51/41/150). "stage" is noisier
+-- Workday's search does something like fuzzy/stemmed matching rather than
+a strict substring check, so a "stage" query also returns some unrelated
+titles (confirmed: senior scientist and business-partner roles with no
+"stage" anywhere in the title) -- but it still surfaces genuine
+"stage"-titled postings the cleaner terms miss, and the noise costs
+nothing worse than a few extra rows classify_contract_type() correctly
+calls "other" once fetched.
+
+A structured `appliedFacets` alternative was also investigated --
+`workerSubType` exposes an "Apprentice/Intern" category on some tenants --
+and rejected: the facet's value id is an opaque, tenant-specific hash (a
+different, unguessable string on every tenant), and Michelin's board
+doesn't expose that facet at all. Using it would need a hardcoded
+per-tenant id lookup table, which doesn't generalize to a new employer and
+isn't something a user could reasonably maintain in config. `searchText`
+is a plain string; it needs none of that and behaves identically on every
+tenant.
+
+`search_terms` (populated from settings.yaml's `workday_search_terms` --
+CLAUDE.md rule 4 means no literal term is ever hardcoded here) runs one
+query per term, deduplicated by `externalPath` across terms, instead of one
+plain paginated crawl. Each term's own pagination is capped by
+MAX_PAGES_PER_SEARCH_TERM -- higher than the plain-crawl MAX_PAGES, since a
+narrowed query returns far fewer results per the numbers above. Real,
+measured end-to-end fetch() time with all four default terms configured,
+against the three tenants verified for this milestone: Sanofi 111 unique
+postings in ~7s, Michelin 178 in ~10s, Airbus 513 in ~30s (see the M8b
+report) -- comfortably under the 60s budget that made plain pagination
+through these same boards a problem in the first place, and with no
+per-term page-cap warning logged for any of the three, i.e. no truncation
+at MAX_PAGES_PER_SEARCH_TERM=30 actually occurred for any tenant or term
+tested. Leaving `search_terms` empty falls back to the original plain
+full-board pagination above, still capped at MAX_PAGES, still honestly
+truncated on a board the size of Airbus's.
 """
 
 from __future__ import annotations
@@ -69,7 +112,7 @@ import re
 import httpx
 
 from jobbot.models import Job
-from jobbot.sources.base import JobSource, SourceEmptyError, SourceError, SourceNotFoundError
+from jobbot.sources.base import JobSource, SourceError, SourceNotFoundError
 from jobbot.sources.classify import classify_contract_type
 
 logger = logging.getLogger(__name__)
@@ -77,7 +120,8 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 15.0
 MAX_ATTEMPTS = 2  # one request, one retry on 5xx/timeout, per page
 PAGE_SIZE = 20  # hard Workday platform cap -- see module docstring
-MAX_PAGES = 20  # per Part A; the binding real-world cap at this page size -- see module docstring
+MAX_PAGES = 20  # plain full-board crawl, no search_terms -- see module docstring
+MAX_PAGES_PER_SEARCH_TERM = 30  # one narrowed query -- see module docstring
 DEFAULT_MAX_POSTINGS = 2000
 
 _IDENTIFIER_RE = re.compile(r"^([a-zA-Z0-9-]+)\.wd(\d+)\.([a-zA-Z0-9_-]+)$")
@@ -95,6 +139,7 @@ class WorkdaySource(JobSource):
         client: httpx.Client,
         user_agent: str,
         max_postings: int = DEFAULT_MAX_POSTINGS,
+        search_terms: list[str] | None = None,
     ) -> None:
         match = _IDENTIFIER_RE.match(identifier)
         if not match:
@@ -105,6 +150,10 @@ class WorkdaySource(JobSource):
         self._tenant, self._wd_number, self._site = match.groups()
         super().__init__(identifier, company_name, client, user_agent)
         self.max_postings = max_postings
+        # Config, not code (CLAUDE.md rule 4) -- see settings.yaml's
+        # workday_search_terms. Empty means no narrowing: the original plain
+        # full-board pagination in _fetch_all_paginated() below.
+        self.search_terms = list(search_terms) if search_terms else []
 
     def _board_url(self) -> str:
         return (
@@ -120,6 +169,22 @@ class WorkdaySource(JobSource):
     ) -> tuple[list[dict], str | None]:
         url = self._board_url()
         headers = {"User-Agent": self.user_agent}
+
+        # M8b: zero results used to raise SourceEmptyError here, but that
+        # can't tell "this board is broken" from "this small company simply
+        # has no open roles right now" -- only the store's history can, so
+        # that decision now happens in run.process_source() instead. An
+        # empty list is a perfectly valid, non-failing return value, for
+        # both branches below.
+        if self.search_terms:
+            return self._fetch_by_search_terms(url, headers), None
+
+        return self._fetch_all_paginated(url, headers), None
+
+    def _fetch_all_paginated(self, url: str, headers: dict[str, str]) -> list[dict]:
+        """No search_terms configured: the original plain full-board crawl,
+        capped by MAX_PAGES and max_postings -- see module docstring for why
+        a huge board is left honestly truncated rather than fully paginated."""
         all_postings: list[dict] = []
         offset = 0
         hit_page_cap = True
@@ -150,18 +215,73 @@ class WorkdaySource(JobSource):
                 self.company_name, self.identifier, MAX_PAGES,
             )
 
-        if not all_postings:
-            raise SourceEmptyError(
-                f"workday: {self.company_name} ({self.identifier}) returned zero postings"
+        return all_postings
+
+    def _fetch_by_search_terms(self, url: str, headers: dict[str, str]) -> list[dict]:
+        """search_terms configured (M8b): one query per term, deduplicated by
+        externalPath across terms, each term capped by
+        MAX_PAGES_PER_SEARCH_TERM -- see module docstring for the real
+        result-count numbers that make this cap safe."""
+        postings_by_key: dict[str, dict] = {}
+
+        for term in self.search_terms:
+            for posting in self._fetch_one_search(url, headers, term):
+                key = posting.get("externalPath")
+                if not key or key in postings_by_key:
+                    continue
+                postings_by_key[key] = posting
+
+            if len(postings_by_key) >= self.max_postings:
+                logger.warning(
+                    "workday: %s (%s) hit max_postings=%d across search terms %s, "
+                    "stopping early (more postings may exist)",
+                    self.company_name, self.identifier, self.max_postings, self.search_terms,
+                )
+                break
+
+        return list(postings_by_key.values())[: self.max_postings]
+
+    def _fetch_one_search(
+        self, url: str, headers: dict[str, str], search_text: str
+    ) -> list[dict]:
+        """Paginates ONE search term until a page returns fewer than
+        PAGE_SIZE (the real last page) or MAX_PAGES_PER_SEARCH_TERM is
+        reached. Logs a warning, doesn't raise, if the cap is hit -- a
+        partial result for one term is still a result."""
+        postings: list[dict] = []
+        offset = 0
+        hit_page_cap = True
+
+        for _page in range(1, MAX_PAGES_PER_SEARCH_TERM + 1):
+            page_postings = self._fetch_page(url, headers, offset, search_text)
+            postings.extend(page_postings)
+
+            if len(page_postings) < PAGE_SIZE:
+                hit_page_cap = False
+                break
+
+            offset += PAGE_SIZE
+
+        if hit_page_cap:
+            logger.warning(
+                "workday: %s (%s) search %r hit the %d-page cap, more postings may exist",
+                self.company_name, self.identifier, search_text, MAX_PAGES_PER_SEARCH_TERM,
             )
 
-        return all_postings, None
+        return postings
 
-    def _fetch_page(self, url: str, headers: dict[str, str], offset: int) -> list[dict]:
+    def _fetch_page(
+        self, url: str, headers: dict[str, str], offset: int, search_text: str = ""
+    ) -> list[dict]:
         """One page, with the same retry-once-on-5xx/timeout contract every
         other adapter follows -- applied per page, since a mid-pagination
         blip shouldn't discard pages already fetched."""
-        body = {"appliedFacets": {}, "limit": PAGE_SIZE, "offset": offset, "searchText": ""}
+        body = {
+            "appliedFacets": {},
+            "limit": PAGE_SIZE,
+            "offset": offset,
+            "searchText": search_text,
+        }
 
         response: httpx.Response | None = None
         error: Exception | None = None

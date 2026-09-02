@@ -5,7 +5,7 @@ import pytest
 import respx
 from conftest import TEST_USER_AGENT
 
-from jobbot.sources.base import SourceEmptyError, SourceError, SourceNotFoundError
+from jobbot.sources.base import SourceError, SourceNotFoundError
 from jobbot.sources.greenhouse import GreenhouseSource
 
 BOARD_URL = "https://boards-api.greenhouse.io/v1/boards/acme/jobs"
@@ -86,12 +86,15 @@ def test_fetch_on_mocked_200_returns_expected_count(greenhouse_payload, mock_cli
     assert len(jobs) == 7  # 8 fixture entries minus the malformed one
 
 
-def test_fetch_raises_source_empty_error_on_empty_jobs_array(mock_client) -> None:
+def test_fetch_returns_an_empty_list_rather_than_raising_on_zero_results(mock_client) -> None:
+    # M8b: zero results is no longer automatically a failure -- see
+    # jobbot/run.py's process_source() for where that decision now lives.
     source = _make_source(mock_client)
     with respx.mock:
         respx.get(BOARD_URL).mock(return_value=httpx.Response(200, json={"jobs": []}))
-        with pytest.raises(SourceEmptyError):
-            source.fetch()
+        jobs = source.fetch()
+
+    assert jobs == []
 
 
 def test_fetch_retries_once_on_500_then_succeeds(greenhouse_payload, mock_client) -> None:

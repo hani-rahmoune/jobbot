@@ -41,7 +41,7 @@ from typing import Self
 
 from jobbot.models import Job
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS source_health (
     last_failure_at TEXT,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
+    has_seen_postings INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source, company)
 );
 
@@ -178,16 +179,37 @@ class JobStore:
         already-populated database. `CREATE TABLE IF NOT EXISTS` alone only
         covers a brand-new file -- an existing v1 database already has a
         `jobs` table, so it needs an explicit column added, not just a
-        bumped version constant."""
+        bumped version constant.
+
+        Migrations chain: a database opened at v1 walks through the v1->v2
+        step below and then the v2->v3 one in the same call, ending at
+        SCHEMA_VERSION, with one final version write -- not two separate
+        elif branches that would each need re-running."""
         cur = self._conn.cursor()
         cur.executescript(_SCHEMA)
         row = cur.execute("SELECT version FROM schema_version").fetchone()
 
         if row is None:
             cur.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-        elif row["version"] < 2:
-            cur.execute("ALTER TABLE jobs ADD COLUMN publish_pending INTEGER NOT NULL DEFAULT 0")
-            cur.execute("UPDATE schema_version SET version = 2")
+        else:
+            version = row["version"]
+            if version < 2:
+                cur.execute(
+                    "ALTER TABLE jobs ADD COLUMN publish_pending INTEGER NOT NULL DEFAULT 0"
+                )
+                version = 2
+            if version < 3:
+                # M8b: has_seen_postings distinguishes "this board went from
+                # having postings to having none" (a real failure) from
+                # "this board has simply never had any" (not a failure) --
+                # see process_source()'s use of it.
+                cur.execute(
+                    "ALTER TABLE source_health "
+                    "ADD COLUMN has_seen_postings INTEGER NOT NULL DEFAULT 0"
+                )
+                version = 3
+            if version != row["version"]:
+                cur.execute("UPDATE schema_version SET version = ?", (version,))
 
         self._conn.commit()
 
@@ -462,24 +484,40 @@ class JobStore:
     # -- source health ---------------------------------------------------------
 
     def record_success(self, source: str, company: str, job_count: int, now: datetime) -> None:
-        # job_count isn't persisted -- there's no column for it (M9's health
-        # pruning may add one), and a success by definition can't have
-        # returned zero (fetch_raw() raises SourceEmptyError on that, before
-        # this is ever called). Accepted here so the caller doesn't need a
-        # special case to report a successful fetch.
+        # job_count isn't persisted as its own column -- there's no need for
+        # one beyond the single bit has_seen_postings captures (M8b): once a
+        # source has ever returned a nonzero count, has_seen_postings latches
+        # to 1 and stays there (MAX() with the existing value, never reset
+        # back to 0 by a later zero -- that zero is what process_source()
+        # uses this flag to catch as a likely failure instead).
         _require_utc(now)
         now_iso = _iso(now)
+        has_seen = 1 if job_count > 0 else 0
         self._conn.execute(
             """
-            INSERT INTO source_health (source, company, last_success_at, consecutive_failures)
-            VALUES (?, ?, ?, 0)
+            INSERT INTO source_health
+                (source, company, last_success_at, consecutive_failures, has_seen_postings)
+            VALUES (?, ?, ?, 0, ?)
             ON CONFLICT(source, company) DO UPDATE SET
                 last_success_at = excluded.last_success_at,
-                consecutive_failures = 0
+                consecutive_failures = 0,
+                has_seen_postings = MAX(source_health.has_seen_postings, excluded.has_seen_postings)
             """,
-            (source, company, now_iso),
+            (source, company, now_iso, has_seen),
         )
         self._conn.commit()
+
+    def has_seen_postings(self, source: str, company: str) -> bool:
+        """True once this source+company has ever had a successful fetch
+        with a nonzero count (see record_success()). False both for a source
+        with no history at all and for one whose every success so far has
+        been genuinely empty -- process_source() treats both as "not a
+        failure yet" the same way."""
+        row = self._conn.execute(
+            "SELECT has_seen_postings FROM source_health WHERE source = ? AND company = ?",
+            (source, company),
+        ).fetchone()
+        return bool(row["has_seen_postings"]) if row is not None else False
 
     def record_failure(self, source: str, company: str, error: str, now: datetime) -> None:
         _require_utc(now)
