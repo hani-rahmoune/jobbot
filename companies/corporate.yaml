@@ -363,3 +363,79 @@
 #
 # Confirmed RMK tenants from this sweep are added below with an
 # `ats: successfactors` entry each; see jobbot/sources/successfactors.py.
+# Nexans, Capgemini, Alstom, and Sephora are ALSO confirmed RMK tenants but
+# are NOT listed here -- Nexans is fully client-rendered (belongs to
+# rendered.py instead, M12 Part F); Capgemini/Alstom/Sephora's "sitemap.xml"
+# is an RSS 2.0 feed, not the <loc>-based urlset this adapter's discovery
+# expects, and no other working discovery mechanism was found for them this
+# session. Recorded here so a future session doesn't re-probe these four
+# from scratch -- the vendor identification stands, only the specific
+# per-tenant discovery mechanism is what's missing.
+
+- name: Eramet
+  ats: successfactors
+  identifier: https://jobs.eramet.com/sitemap.xml
+  tier: warm
+  tags: [mining, metallurgy, successfactors]
+  # slug_vocabulary path matched 19 of 66 job-like URLs, confirmed live:
+  # multiple real "Stagiaire..." postings, Owendo GA (Gabon operations).
+
+- name: Worldline
+  ats: successfactors
+  identifier: https://jobs.worldline.com/sitemap.xml
+  tier: warm
+  tags: [payments, tech, successfactors]
+  # slug_vocabulary path matched 45 of 317; confirmed live, including
+  # "Alternance - Group Benefits F/H", Puteaux -- the same posting M11/M12
+  # found redirecting to an en_US-suffixed URL, location correctly resolved
+  # from the URL slug fallback since this tenant carries no streetAddress
+  # itemprop (the lenient-extraction path this adapter exists for).
+
+- name: Atos
+  ats: successfactors
+  identifier: https://jobs.atos.net/sitemap.xml
+  tier: warm
+  tags: [tech, consulting, successfactors]
+  # slug_vocabulary path matched 22 of 967; confirmed live, real French
+  # "Stage" postings in Courbevoie and Toulouse.
+
+- name: Bel
+  ats: successfactors
+  identifier: https://jobs.groupe-bel.com/sitemap.xml
+  tier: warm
+  tags: [food, successfactors]
+  # slug_vocabulary path matched 83 of 258; confirmed live, real French
+  # "Alternant(e)"/"Stage" postings.
+
+- name: Lactalis
+  ats: successfactors
+  identifier: https://jobs.lactalisexperience.fr/sitemap.xml
+  tier: warm
+  tags: [food, successfactors]
+  # slug_vocabulary path matched 41 of 297; confirmed live, real French
+  # "Alternant" postings with streetAddress-derived locations.
+
+- name: Arkema
+  ats: successfactors
+  identifier: https://jobs.arkema.com/sitemap.xml
+  tier: warm
+  tags: [chemicals, successfactors]
+  # slug_vocabulary path matched 33 of 228; confirmed live, real intern
+  # postings (international -- French ones exist in the fuller candidate
+  # set, not shown in the sample checked).
+
+- name: Solvay
+  ats: successfactors
+  identifier: https://careers.solvay.com/sitemap.xml
+  tier: warm
+  tags: [chemicals, successfactors]
+  # slug_vocabulary path matched 11 of 70; confirmed live, real intern
+  # postings.
+
+- name: Servier
+  ats: successfactors
+  identifier: https://jobs.servier.com/sitemap.xml
+  tier: warm
+  tags: [pharma, successfactors]
+  # slug_vocabulary path hit the 150-page cap (259 real candidates matched,
+  # by far the largest of this sweep) -- confirmed live.
