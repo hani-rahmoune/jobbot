@@ -50,6 +50,11 @@ class Settings(BaseModel):
     # search term anywhere in jobbot/; the actual terms belong here, in
     # settings.yaml, same as every other user search preference.
     search_terms: list[str] = Field(default_factory=list)
+    # M9c: how many companies run.py fetches concurrently via a thread pool
+    # (see run.py's module docstring). Each worker gets its own httpx.Client
+    # and adapter instance; the store is still only ever written from the
+    # main thread afterward, sequentially, in company order.
+    poll_concurrency: int = 6
 
 
 def _env_overrides() -> dict[str, object]:

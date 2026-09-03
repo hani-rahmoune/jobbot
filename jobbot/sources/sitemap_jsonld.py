@@ -49,7 +49,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -64,7 +64,21 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 15.0
 MAX_ATTEMPTS = 2  # one request, one retry on 5xx/timeout, per page fetched
 MAX_JOB_PAGES = 60  # hard cap on individual job-page fetches per poll -- see module docstring
-_JOB_PATH_MARKER = "/job/"  # structural URL-shape marker, confirmed on both verified tenants
+
+# M9d: structural URL-shape markers, not a user search term (CLAUDE.md rule
+# 4 exempts this the same way it exempts classify.py's contract-type
+# vocabulary -- these are path segments a job-board template uses, not a
+# location or keyword preference). "/job/" and "/jobs/" were confirmed live
+# on Thales/Orange (Phenom); the French ones cover the pattern used by
+# employers whose own site is in French even without a named ATS vendor
+# behind it. Overridable per instance for an employer whose URL scheme
+# doesn't match any default -- see __init__'s job_path_markers.
+DEFAULT_JOB_PATH_MARKERS = (
+    "/job/", "/jobs/", "/offre/", "/offres/", "/emploi/", "/poste/", "/career/", "/vacancy/",
+)
+# A path segment that's mostly digits (a requisition/posting id) is also a
+# strong job-page signal even with no recognizable word in the path at all.
+_NUMERIC_PATH_SEGMENT_RE = re.compile(r"/\d{3,}(?:[/?#-]|$)")
 
 _LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.IGNORECASE | re.DOTALL)
 _LD_JSON_BLOCK_RE = re.compile(
@@ -86,6 +100,7 @@ class SitemapJsonLdSource(JobSource):
         client: httpx.Client,
         user_agent: str,
         search_terms: list[str] | None = None,
+        job_path_markers: list[str] | None = None,
     ) -> None:
         parsed = urlsplit(identifier)
         if parsed.scheme != "https" or not parsed.netloc:
@@ -96,6 +111,16 @@ class SitemapJsonLdSource(JobSource):
         super().__init__(identifier, company_name, client, user_agent)
         self._robots = RobotsCache(client, user_agent)
         self.search_terms = list(search_terms) if search_terms else []
+        self.job_path_markers = (
+            list(job_path_markers) if job_path_markers else list(DEFAULT_JOB_PATH_MARKERS)
+        )
+
+    def _looks_like_a_job_url(self, url: str) -> bool:
+        lowered = url.lower()
+        return (
+            any(marker in lowered for marker in self.job_path_markers)
+            or bool(_NUMERIC_PATH_SEGMENT_RE.search(url))
+        )
 
     # --- fetch_raw() -------------------------------------------------------
 
@@ -108,16 +133,16 @@ class SitemapJsonLdSource(JobSource):
                 f"for {self.company_name}"
             )
 
-        top_level_urls = _extract_locs(self._fetch_xml(self.identifier))
+        top_level_urls = _extract_locs(self._fetch_xml(self.identifier), self.identifier)
         sub_sitemaps = [u for u in top_level_urls if u.endswith(".xml")]
 
         # A one-level sitemap (no index) means the top-level document's own
         # <loc> entries already are the page URLs.
         job_candidate_urls = list(top_level_urls) if not sub_sitemaps else []
         for sitemap_url in sub_sitemaps:
-            job_candidate_urls.extend(_extract_locs(self._fetch_xml(sitemap_url)))
+            job_candidate_urls.extend(_extract_locs(self._fetch_xml(sitemap_url), sitemap_url))
 
-        job_urls = [u for u in job_candidate_urls if _JOB_PATH_MARKER in u]
+        job_urls = [u for u in job_candidate_urls if self._looks_like_a_job_url(u)]
 
         if self.search_terms:
             lowered_terms = [t.lower() for t in self.search_terms]
@@ -294,8 +319,21 @@ def _job_postings_from_block(parsed: Any) -> list[dict]:
     return result
 
 
-def _extract_locs(xml_text: str) -> list[str]:
-    return _LOC_RE.findall(xml_text)
+def _extract_locs(xml_text: str, base_url: str) -> list[str]:
+    """The sitemap protocol requires every <loc> to already be an absolute
+    URL, but real-world sitemaps don't always comply (confirmed live: a
+    relative <loc> crashes deep inside urllib if handed to httpx as if it
+    were absolute, rather than failing cleanly) -- every entry is resolved
+    against `base_url` (a no-op for one that's already absolute) and
+    dropped if it still isn't a fetchable absolute http(s) URL afterward.
+    """
+    resolved_urls = []
+    for loc in _LOC_RE.findall(xml_text):
+        resolved = urljoin(base_url, loc)
+        parsed = urlsplit(resolved)
+        if parsed.scheme in ("http", "https") and parsed.netloc:
+            resolved_urls.append(resolved)
+    return resolved_urls
 
 
 def _extract_identifier_value(value: Any) -> str:

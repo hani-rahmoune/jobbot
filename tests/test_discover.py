@@ -37,6 +37,16 @@ def _mock_robots_allow(host: str) -> None:
     )
 
 
+def _mock_no_sitemap(website: str) -> None:
+    """M9d's step 4 always tries these two guessed paths once robots.txt's
+    own Sitemap: lines come up empty (as ALLOW_ALL_ROBOTS does) -- every
+    test whose earlier steps are all meant to fail needs this mocked too,
+    or step 4 has an unmocked respx call and the test errors instead of
+    reaching its own confidence="none" assertion."""
+    respx.get(f"{website}/sitemap_index.xml").mock(return_value=httpx.Response(404))
+    respx.get(f"{website}/sitemap.xml").mock(return_value=httpx.Response(404))
+
+
 # --- detect_ats ------------------------------------------------------------
 
 
@@ -73,6 +83,48 @@ def test_detect_ats_ashby_hosted_url() -> None:
 def test_detect_ats_ashby_api_url() -> None:
     html = 'fetch("https://api.ashbyhq.com/posting-api/job-board/acme")'
     assert detect_ats(html, "https://acme.example") == ("ashby", "acme")
+
+
+def test_detect_ats_workday_url_with_locale_prefix() -> None:
+    html = '<a href="https://ipsen.wd103.myworkdayjobs.com/en-EN/Ipsen_Careers">Careers</a>'
+    assert detect_ats(html, "https://ipsen.example") == ("workday", "ipsen.wd103.Ipsen_Careers")
+
+
+def test_detect_ats_workday_url_without_locale_prefix() -> None:
+    html = '<a href="https://sanofi.wd3.myworkdayjobs.com/SanofiCareers">Careers</a>'
+    assert detect_ats(html, "https://sanofi.example") == ("workday", "sanofi.wd3.SanofiCareers")
+
+
+def test_detect_ats_smartrecruiters_careers_url() -> None:
+    html = '<a href="https://careers.smartrecruiters.com/KIABI">Careers</a>'
+    assert detect_ats(html, "https://kiabi.example") == ("smartrecruiters", "KIABI")
+
+
+def test_detect_ats_smartrecruiters_api_url() -> None:
+    html = 'fetch("https://api.smartrecruiters.com/v1/companies/KIABI/postings")'
+    assert detect_ats(html, "https://kiabi.example") == ("smartrecruiters", "KIABI")
+
+
+def test_detect_ats_talentsoft_url() -> None:
+    html = '<a href="https://casa-cacib-recrute.talent-soft.com/job/list-of-all-jobs.aspx">Jobs</a>'
+    assert detect_ats(html, "https://cacib.example") == (
+        "talentsoft", "https://casa-cacib-recrute.talent-soft.com",
+    )
+
+
+def test_detect_ats_jibe_via_jibecdn_asset_reference() -> None:
+    html = '<script src="https://assets.jibecdn.com/prod/axa/0.0.179/assets/_scripts/header.js"></script>'
+    ats, identifier = detect_ats(html, "https://careers.axa.com/global/en")
+    assert ats == "jibe"
+    assert identifier == "https://careers.axa.com"
+
+
+def test_detect_ats_ats_signatures_are_checked_before_jibe_and_jsonld() -> None:
+    html = (
+        '<a href="https://boards.greenhouse.io/acme">Careers</a>'
+        '<script src="https://assets.jibecdn.com/prod/acme/header.js"></script>'
+    )
+    assert detect_ats(html, "https://acme.example") == ("greenhouse", "acme")
 
 
 def test_detect_ats_jsonld_job_posting() -> None:
@@ -331,6 +383,7 @@ def test_discover_company_gives_up_after_eight_attempts_with_confidence_none(
     root_html = "".join(f'<a href="/link{i}">Careers</a>' for i in range(6))
     with respx.mock:
         _mock_robots_allow("acme.example")
+        _mock_no_sitemap(website)
         respx.get(website, path="/").mock(return_value=httpx.Response(200, text=root_html))
         for i in range(6):
             respx.get(f"{website}/link{i}").mock(
@@ -422,6 +475,7 @@ def test_unresolved_notes_record_every_attempted_url(mock_client: httpx.Client) 
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
+        _mock_no_sitemap(website)
         respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
         respx.get(f"{website}/careers").mock(return_value=httpx.Response(404))
         respx.get(f"{website}/jobs").mock(return_value=httpx.Response(500))
@@ -503,6 +557,7 @@ def test_visited_url_is_never_refetched_even_when_reachable_from_two_paths(
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
+        _mock_no_sitemap(website)
         respx.get(website, path="/").mock(
             return_value=httpx.Response(
                 200, text='<a href="/careers">Careers</a><a href="/jobs">Jobs</a>'
@@ -540,6 +595,7 @@ def test_eight_attempt_cap_holds_across_both_depths(mock_client: httpx.Client) -
     website = "https://acme.example"
     with respx.mock:
         _mock_robots_allow("acme.example")
+        _mock_no_sitemap(website)
         respx.get(website, path="/").mock(
             return_value=httpx.Response(200, text='<a href="/nav-careers">Careers</a>')
         )
@@ -571,6 +627,166 @@ def test_eight_attempt_cap_holds_across_both_depths(mock_client: httpx.Client) -
 
     assert result.confidence == "none"
     assert never_route.call_count == 0
+
+
+# --- sitemap_jsonld resolution, step 4 (M9d) --------------------------------
+
+
+def _mock_every_guessing_step_fails(website: str, host: str) -> None:
+    """Steps 1-3 all fail cleanly (no ATS signature anywhere, no careers
+    links on the root, every guessed path 404s) so a test can focus purely
+    on whether step 4 (the sitemap route) resolves something -- mirrors
+    test_unresolved_entries_never_appear_in_the_yaml's own setup."""
+    _mock_robots_allow(host)
+    respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+    for path in (
+        "/careers", "/jobs", "/carrieres", "/recrutement", "/nous-rejoindre",
+        "/rejoignez-nous", "/emplois", "/join-us", "/careers/jobs", "/fr/carrieres",
+    ):
+        respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
+
+
+def test_discover_company_resolves_via_sitemap_jsonld_when_everything_else_fails(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_every_guessing_step_fails(website, "acme.example")
+        respx.get(f"{website}/sitemap_index.xml").mock(return_value=httpx.Response(404))
+        respx.get(f"{website}/sitemap.xml").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset><url><loc>https://acme.example/job/123</loc></url>"
+                    "<url><loc>https://acme.example/about</loc></url></urlset>"
+                ),
+            )
+        )
+        about_route = respx.get(f"{website}/about").mock(
+            return_value=httpx.Response(200, text="<html></html>")
+        )
+        respx.get(f"{website}/job/123").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    '<script type="application/ld+json">'
+                    '{"@type": "JobPosting", "title": "Alternance Data Analyst"}'
+                    "</script>"
+                ),
+            )
+        )
+
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+        # The non-job-looking /about URL from the same sitemap must never be
+        # fetched -- only URLs that look like job pages are sampled.
+        assert about_route.call_count == 0
+
+    assert result.ats == "sitemap_jsonld"
+    assert result.identifier == f"{website}/sitemap.xml"
+
+
+def test_discover_company_finds_sitemap_via_robots_txt_declaration(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        respx.get(f"{website}/robots.txt").mock(
+            return_value=httpx.Response(
+                200,
+                text=f"User-agent: *\nAllow: /\nSitemap: {website}/custom-sitemap.xml\n",
+            )
+        )
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+        for path in (
+            "/careers", "/jobs", "/carrieres", "/recrutement", "/nous-rejoindre",
+            "/rejoignez-nous", "/emplois", "/join-us", "/careers/jobs", "/fr/carrieres",
+        ):
+            respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
+        respx.get(f"{website}/custom-sitemap.xml").mock(
+            return_value=httpx.Response(
+                200, text="<urlset><url><loc>https://acme.example/offre/55</loc></url></urlset>"
+            )
+        )
+        respx.get(f"{website}/offre/55").mock(
+            return_value=httpx.Response(
+                200,
+                text='<script type="application/ld+json">{"@type": "JobPosting"}</script>',
+            )
+        )
+
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.ats == "sitemap_jsonld"
+    assert result.identifier == f"{website}/custom-sitemap.xml"
+
+
+def test_discover_company_resolves_a_relative_sitemap_declaration_rather_than_crashing(
+    mock_client: httpx.Client,
+) -> None:
+    # Real, observed behavior (confirmed live against discovery/seeds/
+    # Batch1.txt): a robots.txt Sitemap: line that's a relative path, not
+    # the absolute URL the sitemap protocol requires. Handing this straight
+    # to httpx/RobotFileParser as if it were absolute raised deep inside
+    # urllib rather than failing cleanly -- this is that regression test.
+    website = "https://acme.example"
+    with respx.mock:
+        respx.get(f"{website}/robots.txt").mock(
+            return_value=httpx.Response(
+                200, text="User-agent: *\nAllow: /\nSitemap: /relative-sitemap.xml\n"
+            )
+        )
+        respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
+        for path in (
+            "/careers", "/jobs", "/carrieres", "/recrutement", "/nous-rejoindre",
+            "/rejoignez-nous", "/emplois", "/join-us", "/careers/jobs", "/fr/carrieres",
+        ):
+            respx.get(f"{website}{path}").mock(return_value=httpx.Response(404))
+        respx.get(f"{website}/relative-sitemap.xml").mock(
+            return_value=httpx.Response(
+                200, text="<urlset><url><loc>https://acme.example/offre/9</loc></url></urlset>"
+            )
+        )
+        respx.get(f"{website}/offre/9").mock(
+            return_value=httpx.Response(
+                200, text='<script type="application/ld+json">{"@type": "JobPosting"}</script>'
+            )
+        )
+
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.ats == "sitemap_jsonld"
+    assert result.identifier == f"{website}/relative-sitemap.xml"
+
+
+def test_discover_company_sitemap_route_gives_up_cleanly_with_no_job_urls(
+    mock_client: httpx.Client,
+) -> None:
+    website = "https://acme.example"
+    with respx.mock:
+        _mock_every_guessing_step_fails(website, "acme.example")
+        respx.get(f"{website}/sitemap_index.xml").mock(return_value=httpx.Response(404))
+        respx.get(f"{website}/sitemap.xml").mock(
+            return_value=httpx.Response(
+                200, text="<urlset><url><loc>https://acme.example/about</loc></url></urlset>"
+            )
+        )
+
+        result = discover_company(
+            website, "Acme", mock_client, TEST_USER_AGENT,
+            sleep=lambda s: None, verify_result=False,
+        )
+
+    assert result.confidence == "none"
 
 
 # --- verify() / confidence promotion --------------------------------------
@@ -607,6 +823,53 @@ def test_verify_returns_zero_and_a_reason_on_source_error_rather_than_raising(
         count, note = verify("lever", "missing", mock_client, TEST_USER_AGENT)
 
     assert count == 0
+    assert note
+
+
+def test_verify_workday_with_a_real_shaped_identifier(mock_client: httpx.Client) -> None:
+    url = "https://sanofi.wd3.myworkdayjobs.com/wday/cxs/sanofi/SanofiCareers/jobs"
+    with respx.mock:
+        respx.post(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "total": 1,
+                    "jobPostings": [
+                        {
+                            "title": "Alternance Data Analyst",
+                            "externalPath": "/job/Paris/Alternance_R1",
+                            "locationsText": "Paris",
+                        }
+                    ],
+                },
+            )
+        )
+        count, note = verify("workday", "sanofi.wd3.SanofiCareers", mock_client, TEST_USER_AGENT)
+
+    assert count == 1
+    assert note
+
+
+def test_verify_sitemap_jsonld_with_the_sitemap_index_url_as_identifier(
+    mock_client: httpx.Client,
+) -> None:
+    identifier = "https://careers.example.com/sitemap_index.xml"
+    with respx.mock:
+        respx.get("https://careers.example.com/robots.txt").mock(return_value=httpx.Response(404))
+        respx.get(identifier).mock(
+            return_value=httpx.Response(
+                200, text="<urlset><url><loc>https://careers.example.com/job/1</loc></url></urlset>"
+            )
+        )
+        respx.get("https://careers.example.com/job/1").mock(
+            return_value=httpx.Response(
+                200,
+                text='<script type="application/ld+json">{"@type": "JobPosting", "title": "Stage"}</script>',
+            )
+        )
+        count, note = verify("sitemap_jsonld", identifier, mock_client, TEST_USER_AGENT)
+
+    assert count == 1
     assert note
 
 
@@ -770,6 +1033,7 @@ def test_unresolved_entries_never_appear_in_the_yaml(mock_client: httpx.Client, 
     website = "https://nomatch.example"
     with respx.mock:
         _mock_robots_allow("nomatch.example")
+        _mock_no_sitemap(website)
         respx.get(website, path="/").mock(return_value=httpx.Response(200, text="<html>nothing here</html>"))
         for path in (
             "/careers", "/jobs", "/carrieres", "/recrutement", "/nous-rejoindre",

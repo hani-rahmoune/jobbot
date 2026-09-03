@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,11 +12,22 @@ import httpx
 import pytest
 import respx
 
+import jobbot.run as run_module
 from jobbot.config import CompanySource
 from jobbot.filters import FilterConfig, JobFilter, KeywordFilterConfig, LocationFilterConfig
 from jobbot.models import Job
-from jobbot.run import build_source, main, process_source, run, run_check
+from jobbot.run import (
+    _HostThrottle,
+    _HostThrottledTransport,
+    _order_and_cap_companies,
+    build_source,
+    main,
+    process_source,
+    run,
+    run_check,
+)
 from jobbot.sources.base import JobSource, SourceError
+from jobbot.sources.rendered import MAX_RENDERED_SOURCES_PER_POLL
 from jobbot.store import JobStore
 
 BASE = datetime(2024, 1, 1, tzinfo=UTC)
@@ -107,6 +120,7 @@ def _write_run_config(
     companies: list[dict],
     state_db_path: str = ":memory:",
     filters_yaml: str | None = None,
+    poll_concurrency: int = 2,
 ) -> dict[str, Path]:
     companies_dir = tmp_path / "companies"
     companies_dir.mkdir(exist_ok=True)
@@ -133,7 +147,8 @@ def _write_run_config(
     # Single-quoted YAML string: state_db_path may be a Windows path with
     # backslashes, which a double-quoted YAML string would try to escape.
     settings_path.write_text(
-        f"user_agent_contact: \"test@example.invalid\"\nstate_db_path: '{state_db_path}'\n",
+        f"user_agent_contact: \"test@example.invalid\"\nstate_db_path: '{state_db_path}'\n"
+        f"poll_concurrency: {poll_concurrency}\n",
         encoding="utf-8",
     )
 
@@ -765,6 +780,326 @@ def test_run_does_not_count_a_legitimately_empty_source_as_failed(tmp_path: Path
     assert report.sources_failed == 0
     assert report.errors == []
     assert report.jobs_fetched == 0
+
+
+# --- M9c: concurrent polling ------------------------------------------
+
+
+class _ThreadCheckingStore(JobStore):
+    """A real JobStore (same sqlite3 mechanics, nothing mocked) that also
+    records which thread every store-writing method was called from --
+    monkeypatched in for `jobbot.run.JobStore` so run()'s own, real
+    construction of it picks this up transparently."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.calls_from_non_main_thread: list[str] = []
+        self._main_thread = threading.current_thread()
+
+    def _note(self, method_name: str) -> None:
+        if threading.current_thread() is not self._main_thread:
+            self.calls_from_non_main_thread.append(method_name)
+
+    def record(self, *args: object, **kwargs: object):
+        self._note("record")
+        return super().record(*args, **kwargs)
+
+    def record_success(self, *args: object, **kwargs: object) -> None:
+        self._note("record_success")
+        super().record_success(*args, **kwargs)
+
+    def record_failure(self, *args: object, **kwargs: object) -> None:
+        self._note("record_failure")
+        super().record_failure(*args, **kwargs)
+
+    def mark_absent(self, *args: object, **kwargs: object) -> None:
+        self._note("mark_absent")
+        super().mark_absent(*args, **kwargs)
+
+    def has_seen_postings(self, *args: object, **kwargs: object) -> bool:
+        self._note("has_seen_postings")
+        return super().has_seen_postings(*args, **kwargs)
+
+    def age_ghosts(self, *args: object, **kwargs: object) -> None:
+        self._note("age_ghosts")
+        super().age_ghosts(*args, **kwargs)
+
+
+def test_store_is_only_ever_touched_from_the_main_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_stores: list[_ThreadCheckingStore] = []
+
+    def _capturing_store(*args: object, **kwargs: object) -> _ThreadCheckingStore:
+        store = _ThreadCheckingStore(*args, **kwargs)
+        captured_stores.append(store)
+        return store
+
+    monkeypatch.setattr(run_module, "JobStore", _capturing_store)
+
+    paths = _write_run_config(
+        tmp_path,
+        companies=[
+            {"name": "Acme Corp", "ats": "greenhouse", "identifier": "acme"},
+            {"name": "Beta Inc", "ats": "greenhouse", "identifier": "beta"},
+            {"name": "Broken Co", "ats": "greenhouse", "identifier": "broken"},
+        ],
+        poll_concurrency=6,
+    )
+
+    with respx.mock:
+        respx.get(GREENHOUSE_BOARD.format(identifier="acme")).mock(
+            return_value=httpx.Response(200, json=_minimal_payload(2))
+        )
+        respx.get(GREENHOUSE_BOARD.format(identifier="beta")).mock(
+            return_value=httpx.Response(200, json=_minimal_payload(2))
+        )
+        respx.get(GREENHOUSE_BOARD.format(identifier="broken")).mock(
+            return_value=httpx.Response(500)
+        )
+        run(
+            config_dir=paths["config_dir"],
+            filters_path=paths["filters_path"],
+            settings_path=paths["settings_path"],
+            webhook_url="https://discord.com/api/webhooks/1/test",
+            error_webhook_url=None,
+            now=BASE,
+            dry_run=True,
+        )
+
+    assert len(captured_stores) == 1
+    assert captured_stores[0].calls_from_non_main_thread == []
+
+
+def test_run_produces_the_same_report_regardless_of_poll_concurrency(tmp_path: Path) -> None:
+    companies = [
+        {"name": "Acme Corp", "ats": "greenhouse", "identifier": "acme"},
+        {"name": "Beta Inc", "ats": "greenhouse", "identifier": "beta"},
+        {"name": "Broken Co", "ats": "greenhouse", "identifier": "broken"},
+    ]
+
+    def _run_with(concurrency: int, tmp_subdir: Path):
+        tmp_subdir.mkdir(parents=True, exist_ok=True)
+        paths = _write_run_config(tmp_subdir, companies=companies, poll_concurrency=concurrency)
+        with respx.mock:
+            respx.get(GREENHOUSE_BOARD.format(identifier="acme")).mock(
+                return_value=httpx.Response(200, json=_minimal_payload(3))
+            )
+            respx.get(GREENHOUSE_BOARD.format(identifier="beta")).mock(
+                return_value=httpx.Response(200, json=_minimal_payload(2))
+            )
+            respx.get(GREENHOUSE_BOARD.format(identifier="broken")).mock(
+                return_value=httpx.Response(500)
+            )
+            return run(
+                config_dir=paths["config_dir"],
+                filters_path=paths["filters_path"],
+                settings_path=paths["settings_path"],
+                webhook_url="https://discord.com/api/webhooks/1/test",
+                error_webhook_url=None,
+                now=BASE,
+                dry_run=True,
+            )
+
+    sequential = _run_with(1, tmp_path / "seq")
+    concurrent = _run_with(6, tmp_path / "conc")
+
+    assert concurrent.sources_attempted == sequential.sources_attempted
+    assert concurrent.sources_failed == sequential.sources_failed
+    assert concurrent.jobs_fetched == sequential.jobs_fetched
+    assert concurrent.jobs_passing_filter == sequential.jobs_passing_filter
+    assert concurrent.verdicts == sequential.verdicts
+    assert len(concurrent.errors) == len(sequential.errors)
+
+
+def test_a_worker_failure_does_not_affect_other_workers(tmp_path: Path) -> None:
+    paths = _write_run_config(
+        tmp_path,
+        companies=[
+            {"name": "Acme Corp", "ats": "greenhouse", "identifier": "acme"},
+            {"name": "Broken One", "ats": "greenhouse", "identifier": "broken-one"},
+            {"name": "Beta Inc", "ats": "greenhouse", "identifier": "beta"},
+            {"name": "Broken Two", "ats": "greenhouse", "identifier": "broken-two"},
+        ],
+        poll_concurrency=4,
+    )
+
+    with respx.mock:
+        respx.get(GREENHOUSE_BOARD.format(identifier="acme")).mock(
+            return_value=httpx.Response(200, json=_minimal_payload(2))
+        )
+        respx.get(GREENHOUSE_BOARD.format(identifier="broken-one")).mock(
+            return_value=httpx.Response(500)
+        )
+        respx.get(GREENHOUSE_BOARD.format(identifier="beta")).mock(
+            return_value=httpx.Response(200, json=_minimal_payload(2))
+        )
+        respx.get(GREENHOUSE_BOARD.format(identifier="broken-two")).mock(
+            return_value=httpx.Response(500)
+        )
+        report = run(
+            config_dir=paths["config_dir"],
+            filters_path=paths["filters_path"],
+            settings_path=paths["settings_path"],
+            webhook_url="https://discord.com/api/webhooks/1/test",
+            error_webhook_url=None,
+            now=BASE,
+            dry_run=True,
+        )
+
+    assert report.sources_attempted == 4
+    assert report.sources_failed == 2
+    assert report.jobs_fetched == 4  # acme's 2 + beta's 2, unaffected by the two failures
+    assert len(report.errors) == 2
+
+
+def test_host_throttled_transport_never_exceeds_the_per_host_limit() -> None:
+    throttle = _HostThrottle(per_host_limit=2)
+    lock = threading.Lock()
+    in_flight = 0
+    peak_in_flight = 0
+
+    class _SlowFakeTransport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            nonlocal in_flight, peak_in_flight
+            with lock:
+                in_flight += 1
+                peak_in_flight = max(peak_in_flight, in_flight)
+            time.sleep(0.05)
+            with lock:
+                in_flight -= 1
+            return httpx.Response(200, request=request)
+
+    transport = _HostThrottledTransport(_SlowFakeTransport(), throttle)
+
+    def _fire() -> None:
+        transport.handle_request(httpx.Request("GET", "https://example.invalid/x"))
+
+    threads = [threading.Thread(target=_fire) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert peak_in_flight <= 2
+
+
+def test_host_throttled_transport_releases_the_semaphore_even_on_exception() -> None:
+    throttle = _HostThrottle(per_host_limit=1)
+
+    class _RaisingTransport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("boom")
+
+    transport = _HostThrottledTransport(_RaisingTransport(), throttle)
+    request = httpx.Request("GET", "https://example.invalid/x")
+
+    with pytest.raises(httpx.ConnectError):
+        transport.handle_request(request)
+
+    # If the failed request had never released the semaphore, this
+    # non-blocking acquire would find it already exhausted.
+    semaphore = throttle.semaphore_for("example.invalid")
+    assert semaphore.acquire(blocking=False) is True
+    semaphore.release()
+
+
+def test_different_hosts_get_independent_semaphores() -> None:
+    throttle = _HostThrottle(per_host_limit=1)
+    a = throttle.semaphore_for("a.example.invalid")
+    b = throttle.semaphore_for("b.example.invalid")
+    assert a is not b
+
+
+# --- M9e: rendered-source ordering and per-poll cap ------------------------
+
+
+def _rendered_company(name: str) -> CompanySource:
+    return CompanySource(name=name, ats="rendered", identifier=f"https://{name.lower()}.example")
+
+
+def test_rendered_companies_are_moved_after_every_non_rendered_one() -> None:
+    companies = [
+        _rendered_company("R1"),
+        _company("acme", "Acme"),
+        _rendered_company("R2"),
+        _company("beta", "Beta"),
+    ]
+    ordered, skipped = _order_and_cap_companies(companies)
+
+    assert [c.name for c in ordered] == ["Acme", "Beta", "R1", "R2"]
+    assert skipped == []
+
+
+def test_relative_order_is_preserved_within_each_group() -> None:
+    companies = [
+        _rendered_company("R2"),
+        _rendered_company("R1"),
+        _company("beta", "Beta"),
+        _company("acme", "Acme"),
+    ]
+    ordered, _skipped = _order_and_cap_companies(companies)
+
+    assert [c.name for c in ordered] == ["Beta", "Acme", "R2", "R1"]
+
+
+def test_rendered_companies_beyond_the_cap_are_excluded_and_reported_separately() -> None:
+    rendered = [_rendered_company(f"R{i}") for i in range(MAX_RENDERED_SOURCES_PER_POLL + 3)]
+    ordered, skipped = _order_and_cap_companies(rendered)
+
+    assert len(ordered) == MAX_RENDERED_SOURCES_PER_POLL
+    assert len(skipped) == 3
+    # The FIRST N (in original order) are kept, not an arbitrary subset.
+    assert [c.name for c in ordered] == [f"R{i}" for i in range(MAX_RENDERED_SOURCES_PER_POLL)]
+    assert [c.name for c in skipped] == [
+        f"R{i}" for i in range(MAX_RENDERED_SOURCES_PER_POLL, MAX_RENDERED_SOURCES_PER_POLL + 3)
+    ]
+
+
+def test_a_skipped_rendered_source_is_never_attempted_this_poll(tmp_path: Path) -> None:
+    companies_dir = tmp_path / "companies"
+    companies_dir.mkdir()
+    lines = [
+        f"- name: R{i}\n  ats: rendered\n  identifier: https://r{i}.example/careers\n"
+        for i in range(MAX_RENDERED_SOURCES_PER_POLL + 1)
+    ]
+    (companies_dir / "companies.yaml").write_text("\n".join(lines), encoding="utf-8")
+    filters_path = tmp_path / "filters.yaml"
+    filters_path.write_text(
+        "locations:\n  include: [paris]\ncontract_types: [internship]\nkeywords:\n  include: []\n",
+        encoding="utf-8",
+    )
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(
+        'user_agent_contact: "test@example.invalid"\nstate_db_path: \':memory:\'\n'
+        "poll_concurrency: 2\n",
+        encoding="utf-8",
+    )
+
+    with respx.mock:
+        # robots.txt disallowed for every one of the kept rendered sources,
+        # so each fails fast and cleanly without needing a real browser --
+        # this test is only about the cap, not about rendered.py itself.
+        for i in range(MAX_RENDERED_SOURCES_PER_POLL):
+            respx.get(f"https://r{i}.example/robots.txt").mock(
+                return_value=httpx.Response(200, text="User-agent: *\nDisallow: /")
+            )
+        never_route = respx.get(
+            f"https://r{MAX_RENDERED_SOURCES_PER_POLL}.example/robots.txt"
+        ).mock(return_value=httpx.Response(404))
+
+        report = run(
+            config_dir=companies_dir,
+            filters_path=filters_path,
+            settings_path=settings_path,
+            webhook_url="https://discord.com/api/webhooks/1/test",
+            error_webhook_url=None,
+            now=BASE,
+            dry_run=True,
+        )
+
+    assert report.sources_attempted == MAX_RENDERED_SOURCES_PER_POLL
+    assert never_route.call_count == 0
 
 
 # --- THE END TO END TEST, load bearing ------------------------------------

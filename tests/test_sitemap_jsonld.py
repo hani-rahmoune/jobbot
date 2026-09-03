@@ -113,6 +113,28 @@ def test_fetch_discovers_through_the_index_and_both_leaf_sitemaps(mock_client: h
     assert len(jobs) == 2
 
 
+def test_a_relative_loc_entry_is_resolved_rather_than_crashing(mock_client: httpx.Client) -> None:
+    # Real-world sitemaps sometimes carry a relative <loc> even though the
+    # protocol requires absolute URLs -- confirmed live via
+    # discovery/seeds/Batch1.txt, where a relative Sitemap: robots.txt
+    # declaration crashed deep inside urllib before this fix.
+    source = _make_source(mock_client)
+    sitemap_with_relative_loc = '<urlset><url><loc>/job/relative-posting</loc></url></urlset>'
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(INDEX_URL).mock(return_value=httpx.Response(200, text=sitemap_with_relative_loc))
+        # A leading "/" resolves against the domain root, not the sitemap's
+        # own directory (standard urljoin/href semantics) -- confirming
+        # that's really what happens is the point of this test.
+        job_route = respx.get("https://careers.thalesgroup.com/job/relative-posting").mock(
+            return_value=httpx.Response(200, text=_read_fixture("job_page.html"))
+        )
+        jobs = source.fetch()
+
+    assert job_route.call_count == 1
+    assert len(jobs) == 1
+
+
 def test_non_job_urls_in_the_sitemap_are_never_fetched(mock_client: httpx.Client) -> None:
     source = _make_source(mock_client)
     with respx.mock:
@@ -308,3 +330,47 @@ def test_hits_the_job_page_cap_when_no_search_terms_narrow_a_large_candidate_set
 
 def test_max_job_pages_constant_is_a_sane_positive_bound() -> None:
     assert MAX_JOB_PAGES > 0
+
+
+# --- job_path_markers (M9d) -------------------------------------------
+
+
+def test_default_job_path_markers_recognize_french_url_shapes(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    for path in ["/offre/123", "/offres/123", "/emploi/123", "/poste/123", "/vacancy/123"]:
+        assert source._looks_like_a_job_url(f"{BASE_URL}{path}") is True
+    assert source._looks_like_a_job_url(f"{BASE_URL}/events") is False
+
+
+def test_a_purely_numeric_path_segment_is_recognized_even_with_no_keyword(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client)
+    assert source._looks_like_a_job_url(f"{BASE_URL}/posting/482913") is True
+    assert source._looks_like_a_job_url(f"{BASE_URL}/posting/ab") is False
+
+
+def test_custom_job_path_markers_override_the_default_list(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client, job_path_markers=["/annonce/"])
+    assert source._looks_like_a_job_url(f"{BASE_URL}/annonce/analyste") is True
+    assert source._looks_like_a_job_url(f"{BASE_URL}/job/analyste") is False  # not in the override
+
+
+def test_custom_job_path_markers_are_used_to_filter_the_real_sitemap(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client, job_path_markers=["/does-not-exist-in-fixture/"])
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap_index.xml"))
+        )
+        respx.get(f"{BASE_URL}/sitemap1.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap1.xml"))
+        )
+        respx.get(f"{BASE_URL}/sitemap2.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap2.xml"))
+        )
+        jobs = source.fetch()
+
+    assert jobs == []  # every real /job/ URL is invisible under this override

@@ -18,6 +18,7 @@ from jobbot.sources import (  # noqa: F401
     jibe,
     jsonld,
     lever,
+    rendered,
     sitemap_jsonld,
     smartrecruiters,
     talentsoft,

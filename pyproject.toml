@@ -10,6 +10,19 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+# M9e: jobbot/sources/rendered.py's headless-browser adapter is the ONLY
+# thing in this codebase that needs Playwright, and only when a company
+# entry actually uses `ats: rendered` -- every other adapter, and the bot
+# as a whole, must keep working with this extra never installed (rendered.py
+# imports playwright lazily, inside fetch_raw(), never at module level, for
+# exactly this reason). Install with `uv sync --extra playwright`, then
+# `uv run playwright install --with-deps chromium` for the browser binary
+# itself (a separate download `uv sync` doesn't trigger).
+[project.optional-dependencies]
+playwright = [
+    "playwright>=1.40",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -31,6 +44,9 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: a real-integration test, opted into rather than run by default (M9e: the one real-Playwright test)",
+]
 
 [tool.coverage.run]
 # sysmon (Python 3.12+'s sys.monitoring API) cuts coverage-enabled runtime

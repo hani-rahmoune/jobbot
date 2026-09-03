@@ -53,6 +53,7 @@ import logging
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -68,9 +69,14 @@ from jobbot.sources.ashby import AshbySource
 from jobbot.sources.base import JobSource, SourceError
 from jobbot.sources.greenhouse import GreenhouseSource
 from jobbot.sources.html_text import strip_html
+from jobbot.sources.jibe import JibeSource
 from jobbot.sources.jsonld import JsonLdSource
 from jobbot.sources.lever import LeverSource
 from jobbot.sources.robots import RobotsCache
+from jobbot.sources.sitemap_jsonld import SitemapJsonLdSource
+from jobbot.sources.smartrecruiters import SmartRecruitersSource
+from jobbot.sources.talentsoft import TalentsoftSource
+from jobbot.sources.workday import WorkdaySource
 
 logger = logging.getLogger(__name__)
 
@@ -97,34 +103,99 @@ class DiscoveryResult:
 
 _TOKEN = r"([a-zA-Z0-9_-]+)"
 
+def _single_group(match: re.Match[str]) -> str:
+    return match.group(1)
+
+
+def _workday_identifier(match: re.Match[str]) -> str:
+    """Workday's real URL shape is
+    "{tenant}.wd{N}.myworkdayjobs.com/{optional-locale/}{site}" -- the
+    identifier every adapter in this codebase uses is "{tenant}.wd{N}.{site}"
+    (no locale segment, since fetch_raw() talks to the CXS API directly, not
+    the locale-prefixed UI path), so it's assembled from the two captured
+    groups rather than being one contiguous substring of the URL."""
+    return f"{match.group(1)}.{match.group(2)}"
+
+
+def _talentsoft_identifier(match: re.Match[str]) -> str:
+    return f"https://{match.group(1)}"
+
+
 # Checked in this fixed order (not by which appears first in the raw text) so
-# a page mentioning more than one ATS resolves the same way every time.
-_ATS_SIGNATURES: list[tuple[str, list[re.Pattern[str]]]] = [
+# a page mentioning more than one ATS resolves the same way every time. Each
+# pattern pairs with the function that turns its match into the identifier
+# shape that ATS's own adapter expects -- group(1) verbatim for most, but
+# Workday and Talentsoft need their captured pieces assembled (see above).
+_ATS_SIGNATURES: list[tuple[str, list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]]]] = [
     (
         "greenhouse",
         [
-            re.compile(rf"boards-api\.greenhouse\.io/v1/boards/{_TOKEN}", re.IGNORECASE),
-            re.compile(rf"job-boards\.greenhouse\.io/{_TOKEN}", re.IGNORECASE),
-            re.compile(rf"boards\.greenhouse\.io/{_TOKEN}", re.IGNORECASE),
+            (re.compile(rf"boards-api\.greenhouse\.io/v1/boards/{_TOKEN}", re.IGNORECASE), _single_group),
+            (re.compile(rf"job-boards\.greenhouse\.io/{_TOKEN}", re.IGNORECASE), _single_group),
+            (re.compile(rf"boards\.greenhouse\.io/{_TOKEN}", re.IGNORECASE), _single_group),
         ],
     ),
     (
         "lever",
         [
-            re.compile(rf"api\.lever\.co/v0/postings/{_TOKEN}", re.IGNORECASE),
-            re.compile(rf"jobs\.lever\.co/{_TOKEN}", re.IGNORECASE),
+            (re.compile(rf"api\.lever\.co/v0/postings/{_TOKEN}", re.IGNORECASE), _single_group),
+            (re.compile(rf"jobs\.lever\.co/{_TOKEN}", re.IGNORECASE), _single_group),
         ],
     ),
     (
         "ashby",
         [
-            re.compile(
-                rf"api\.ashbyhq\.com/posting-api/job-board/{_TOKEN}", re.IGNORECASE
+            (
+                re.compile(rf"api\.ashbyhq\.com/posting-api/job-board/{_TOKEN}", re.IGNORECASE),
+                _single_group,
             ),
-            re.compile(rf"jobs\.ashbyhq\.com/{_TOKEN}", re.IGNORECASE),
+            (re.compile(rf"jobs\.ashbyhq\.com/{_TOKEN}", re.IGNORECASE), _single_group),
+        ],
+    ),
+    (
+        # M9d: real URL confirmed live across every Workday tenant checked
+        # for M9/M9b (e.g. ipsen.wd103.myworkdayjobs.com/en-EN/Ipsen_Careers).
+        "workday",
+        [
+            (
+                re.compile(
+                    r"([a-zA-Z0-9-]+\.wd\d+)\.myworkdayjobs\.com/"
+                    r"(?:[a-zA-Z]{2}-[a-zA-Z]{2}/)?([a-zA-Z0-9_-]+)",
+                    re.IGNORECASE,
+                ),
+                _workday_identifier,
+            ),
+        ],
+    ),
+    (
+        # M9d: careers.smartrecruiters.com/{id} is the public career page a
+        # company's own site links to; api.smartrecruiters.com is the
+        # adapter's own endpoint, occasionally linked directly instead.
+        "smartrecruiters",
+        [
+            (re.compile(rf"careers\.smartrecruiters\.com/{_TOKEN}", re.IGNORECASE), _single_group),
+            (re.compile(rf"api\.smartrecruiters\.com/v1/companies/{_TOKEN}", re.IGNORECASE), _single_group),
+        ],
+    ),
+    (
+        # M9d: identifier is the full https URL to the tenant's own
+        # subdomain (jobbot/sources/talentsoft.py's own identifier shape) --
+        # captured whole rather than as a bare token, unlike every vendor
+        # above whose identifier is just the token whichever domain gives.
+        "talentsoft",
+        [
+            (re.compile(r"https?://([a-zA-Z0-9-]+\.talent-soft\.com)", re.IGNORECASE), _talentsoft_identifier),
         ],
     ),
 ]
+
+# M9d: Jibe (jobbot/sources/jibe.py) has no shared host of its own -- every
+# employer runs it on their OWN domain -- so there's no URL token to capture
+# the way every vendor above has. What IS constant across every Jibe
+# deployment (confirmed live on AXA) is that its pages load assets from
+# jibecdn.com; when that's present, the identifier is simply the page's own
+# domain, checked separately from the token-capturing loop above.
+_JIBE_SIGNATURE_RE = re.compile(r"jibecdn\.com", re.IGNORECASE)
 
 # Lightweight presence check, not a full extraction (jsonld.py's own adapter
 # does the real parsing at fetch time) -- just enough to tell "this page has
@@ -141,11 +212,15 @@ def detect_ats(html: str, page_url: str) -> tuple[str | None, str | None]:
     ATS widget plus unrelated boilerplate that happens to mention
     "JobPosting" elsewhere). Returns (None, None) when nothing matches.
     """
-    for ats_name, patterns in _ATS_SIGNATURES:
-        for pattern in patterns:
+    for ats_name, pattern_pairs in _ATS_SIGNATURES:
+        for pattern, build_identifier in pattern_pairs:
             match = pattern.search(html)
             if match:
-                return ats_name, match.group(1)
+                return ats_name, build_identifier(match)
+
+    if _JIBE_SIGNATURE_RE.search(html):
+        parsed = urlsplit(page_url)
+        return "jibe", f"{parsed.scheme}://{parsed.netloc}"
 
     for script_match in _JSONLD_SCRIPT_RE.finditer(html):
         if "JobPosting" in script_match.group(1):
@@ -159,6 +234,11 @@ _ADAPTER_CLASSES: dict[str, type[JobSource]] = {
     "lever": LeverSource,
     "ashby": AshbySource,
     "jsonld": JsonLdSource,
+    "workday": WorkdaySource,
+    "smartrecruiters": SmartRecruitersSource,
+    "talentsoft": TalentsoftSource,
+    "jibe": JibeSource,
+    "sitemap_jsonld": SitemapJsonLdSource,
 }
 
 
@@ -350,6 +430,135 @@ def _ranked_depth2_candidates(html: str, base_url: str) -> list[str]:
     return [url for url, _text in ranked]
 
 
+# M9d: the sitemap_jsonld resolution path (Part D). Same structural
+# URL-shape markers as jobbot/sources/sitemap_jsonld.py's own
+# DEFAULT_JOB_PATH_MARKERS -- kept as a separate, local copy rather than an
+# import, matching this module's existing convention of not reaching into
+# another adapter module's internals (discover.py only imports adapter
+# *classes*, for verify(), never their private helpers).
+_SITEMAP_JOB_PATH_MARKERS = (
+    "/job/", "/jobs/", "/offre/", "/offres/", "/emploi/", "/poste/", "/career/", "/vacancy/",
+)
+_SITEMAP_NUMERIC_PATH_SEGMENT_RE = re.compile(r"/\d{3,}(?:[/?#-]|$)")
+_SITEMAP_LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.IGNORECASE | re.DOTALL)
+_SITEMAP_DECLARATION_RE = re.compile(r"(?im)^Sitemap:\s*(\S+)")
+MAX_SITEMAP_SUB_SITEMAPS = 3
+MAX_SITEMAP_JOB_SAMPLES = 3
+
+
+def _looks_like_a_sitemap_job_url(url: str) -> bool:
+    lowered = url.lower()
+    return (
+        any(marker in lowered for marker in _SITEMAP_JOB_PATH_MARKERS)
+        or bool(_SITEMAP_NUMERIC_PATH_SEGMENT_RE.search(url))
+    )
+
+
+def _resolve_sitemap_url(base_url: str, candidate: str) -> str | None:
+    """The sitemap protocol requires every <loc> and every robots.txt
+    Sitemap: value to be an absolute URL, but real-world robots.txt files
+    don't always get this right -- a relative "Sitemap: /sitemap.xml" is
+    real, observed behavior (confirmed against discovery/seeds/Batch1.txt),
+    and feeding that straight to httpx/RobotFileParser as if it were
+    absolute raises deep inside urllib rather than failing cleanly. Resolved
+    against `base_url` the same way an href on the page would be; returns
+    None (never raises) for anything that still isn't a fetchable absolute
+    http(s) URL afterward.
+    """
+    resolved = urljoin(base_url, candidate)
+    parsed = urlsplit(resolved)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return resolved
+
+
+def _discover_sitemap_jsonld(
+    website: str,
+    try_url: Callable[[str], tuple[str | None, str | None, str | None]],
+) -> tuple[str, str] | None:
+    """Part D / M9d: the last resort, tried only after every other
+    resolution step has failed. Checks whether this employer's own site
+    publishes a sitemap of individual job pages carrying schema.org
+    JobPosting JSON-LD -- exactly the real pattern
+    jobbot/sources/sitemap_jsonld.py's own module docstring documents
+    finding for Orange and Thales, both of which had been declared
+    impossible by every earlier resolution step (Phenom's search widget is
+    session/CSRF-bound). Returns ("sitemap_jsonld", sitemap_index_url) on a
+    genuine JobPosting hit in a sampled job page, else None -- never raises,
+    same as every other step here (`try_url` already turns every failure
+    mode into a `None` html result rather than an exception).
+
+    Uses `try_url` for every fetch, exactly like every other step, so
+    robots.txt, the politeness delay, and the "never fetch the same URL
+    twice this call" cache all apply here too -- this just isn't gated by
+    the same MAX_URL_ATTEMPTS budget the page-guessing steps share, since a
+    real sitemap tree can legitimately need more than 8 fetches (index +
+    several leaf sitemaps + several sampled job pages) to reach a verdict.
+    """
+    root = website.rstrip("/")
+
+    _, _, robots_text = try_url(f"{root}/robots.txt")
+    declared_sitemaps = _SITEMAP_DECLARATION_RE.findall(robots_text) if robots_text else []
+    # Per spec every declared value is already absolute, but real robots.txt
+    # files aren't always spec-compliant -- resolved against `root` (a no-op
+    # for one that already is absolute) rather than trusted verbatim, and
+    # dropped entirely if it still isn't a fetchable absolute URL afterward.
+    sitemap_urls = [
+        resolved
+        for declared in declared_sitemaps
+        if (resolved := _resolve_sitemap_url(root, declared)) is not None
+    ]
+
+    # If a guessed path is what works, its content is already in hand --
+    # reused directly as top_level_text rather than fetched a second time,
+    # which `try_url`'s own already-fetched cache would just turn into a
+    # `None` (it never re-fetches the same URL twice in one discover_company
+    # call, by design -- see A2 in this module's docstring).
+    sitemap_index_url: str | None = None
+    top_level_text: str | None = None
+
+    if sitemap_urls:
+        sitemap_index_url = sitemap_urls[0]
+        _, _, top_level_text = try_url(sitemap_index_url)
+    else:
+        for guess_path in ("/sitemap_index.xml", "/sitemap.xml"):
+            _, _, guess_text = try_url(root + guess_path)
+            if guess_text and "<" in guess_text[:200]:
+                sitemap_index_url = root + guess_path
+                top_level_text = guess_text
+                break
+
+    if sitemap_index_url is None or not top_level_text:
+        return None
+
+    top_level_locs = _SITEMAP_LOC_RE.findall(top_level_text)
+    top_level_urls = [
+        resolved for loc in top_level_locs if (resolved := _resolve_sitemap_url(root, loc)) is not None
+    ]
+    sub_sitemaps = [u for u in top_level_urls if u.endswith(".xml")]
+
+    all_urls: list[str] = list(top_level_urls) if not sub_sitemaps else []
+    for sub_sitemap_url in sub_sitemaps[:MAX_SITEMAP_SUB_SITEMAPS]:
+        _, _, sub_text = try_url(sub_sitemap_url)
+        if sub_text:
+            all_urls.extend(
+                resolved
+                for loc in _SITEMAP_LOC_RE.findall(sub_text)
+                if (resolved := _resolve_sitemap_url(root, loc)) is not None
+            )
+
+    job_urls = [u for u in all_urls if _looks_like_a_sitemap_job_url(u)]
+
+    for sample_url in job_urls[:MAX_SITEMAP_JOB_SAMPLES]:
+        _, _, sample_html = try_url(sample_url)
+        if sample_html and any(
+            "JobPosting" in match.group(1) for match in _JSONLD_SCRIPT_RE.finditer(sample_html)
+        ):
+            return "sitemap_jsonld", sitemap_index_url
+
+    return None
+
+
 def discover_company(
     website: str,
     company_name: str,
@@ -370,17 +579,25 @@ def discover_company(
        ones first, per A3 -- see _ranked_depth2_candidates()) are followed
        as depth 2. No further recursion past depth 2 (A1): a depth-2 page
        that yields no ATS is simply a dead end.
-    3. only then, the guessed-path list (candidate_careers_urls()), as a
-       last resort for sites the link-following steps found nothing on.
+    3. the guessed-path list (candidate_careers_urls()), for sites the
+       link-following steps found nothing on.
+    4. (M9d) the sitemap_jsonld route: robots.txt's Sitemap: lines (or a
+       guessed /sitemap_index.xml, /sitemap.xml), recursed one level,
+       sampled for job-like URLs carrying real JobPosting JSON-LD -- see
+       _discover_sitemap_jsonld(). Tried last since it's the most expensive
+       step, but it's also the only one that can resolve an employer whose
+       listing page is entirely client-rendered.
 
-    Every fetch at every depth counts against the same MAX_URL_ATTEMPTS
+    Every fetch in steps 1-3 counts against the same MAX_URL_ATTEMPTS
     budget and the same per-call `fetched` set (A2), so a link back to an
-    already-fetched page is never fetched twice. Verifies the result unless
-    `verify_result` is False. On failure, `notes` records every URL
+    already-fetched page is never fetched twice; step 4 shares `fetched`
+    too (never re-fetches a URL steps 1-3 already tried) but has its own,
+    separate budget (see _discover_sitemap_jsonld). Verifies the result
+    unless `verify_result` is False. On failure, `notes` records every URL
     attempted and what it returned, in the exact order they were walked --
-    root, then depth 1, then depth 2 for whichever depth-1 page spawned it
-    -- plus whether any careers-looking links were found at all, so a
-    failure is debuggable straight from unresolved.txt.
+    root, then depth 1, then depth 2 for whichever depth-1 page spawned it,
+    then the sitemap route -- plus whether any careers-looking links were
+    found at all, so a failure is debuggable straight from unresolved.txt.
     """
     robots = RobotsCache(client, user_agent)
     attempts: list[str] = []
@@ -469,6 +686,19 @@ def discover_company(
             if ats is not None:
                 detected_ats, detected_identifier, detected_url = ats, identifier, candidate_url
                 break
+
+    # Step 4 (M9d): the sitemap_jsonld route, tried only once every page-
+    # guessing and link-following step above has failed -- this is what
+    # resolves an employer whose listing page is entirely client-rendered
+    # but whose individual job pages are sitemap-discoverable and carry
+    # real JobPosting JSON-LD (see _discover_sitemap_jsonld's own
+    # docstring). Not gated by MAX_URL_ATTEMPTS, which governs the cheaper
+    # guessing steps above, not this more expensive, more reliable one.
+    if detected_ats is None:
+        sitemap_result = _discover_sitemap_jsonld(website, try_url)
+        if sitemap_result is not None:
+            detected_ats, detected_identifier = sitemap_result
+            detected_url = detected_identifier  # the sitemap index url itself
 
     if detected_ats is None or detected_identifier is None:
         notes = "; ".join(attempts) if attempts else "no attempts made"

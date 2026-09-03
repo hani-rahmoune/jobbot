@@ -239,3 +239,24 @@
   tier: warm
   tags: [telecom, cac40, sitemap_jsonld]
   # 657 total job URLs across 2 sub-sitemaps; "alternance" 5, "stage" 6
+
+# M9d: sitemap sweep across every previously-unverified employer (see the
+# M9d report's table for the full list checked, including domains that
+# genuinely had no sitemap, no job-like URLs, or job-like URLs with no
+# JobPosting JSON-LD -- none of those are listed here, only the real hits).
+
+- name: Accor
+  ats: sitemap_jsonld
+  identifier: https://careers.accor.com/sitemap.xml
+  tier: warm
+  tags: [hospitality, sitemap_jsonld]
+  # search_terms narrowed to 86 real candidate job URLs (the confirmed live
+  # fetch hit the 60-page cap and returned exactly 60 -- see the M9d report)
+
+- name: Rexel
+  ats: sitemap_jsonld
+  identifier: https://careers.rexel.com/sitemap.xml
+  tier: warm
+  tags: [distribution, sitemap_jsonld]
+  # search_terms narrowed to 18 real postings fetched, confirmed live
+  # (e.g. "Stage Datacom & Security Specialist", real "stage" content)

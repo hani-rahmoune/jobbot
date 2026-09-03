@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field, ValidationError
 KNOWN_ATS = frozenset(
     {
         "greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe",
-        "talentsoft", "sitemap_jsonld",
+        "talentsoft", "sitemap_jsonld", "rendered",
     }
 )
 

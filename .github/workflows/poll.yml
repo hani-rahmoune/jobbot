@@ -39,6 +39,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # M9e: only the poll workflow installs this, and only because a real
+      # poll might have a `rendered.py`-backed company configured -- CI
+      # (ci.yml) never needs a real browser, and the bot itself must keep
+      # working with this step absent entirely (rendered.py imports
+      # playwright lazily; every other adapter never touches it).
+      - name: Install Playwright (for the rendered adapter, if any company uses it)
+        run: |
+          uv sync --extra playwright
+          uv run playwright install --with-deps chromium
+
       - name: Run jobbot
         id: run_bot
         shell: bash
