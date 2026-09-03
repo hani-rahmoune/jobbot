@@ -221,9 +221,10 @@
 # (session/CSRF-bound), but both employers' job pages are reachable this
 # way. Identifier is the sitemap index URL from each site's own robots.txt.
 # Totals below are total discoverable job URLs across every per-locale
-# sub-sitemap, not postings actually fetched each poll -- search_terms
-# narrows that down to a bounded double-digit set per employer (see
-# jobbot/sources/sitemap_jsonld.py's module docstring and MAX_JOB_PAGES).
+# sub-sitemap, not postings actually fetched each poll -- search_terms,
+# then the slug vocabulary, then a sample narrows that down to a bounded
+# set per employer (see jobbot/sources/sitemap_jsonld.py's module
+# docstring and DEFAULT_PAGE_CAP).
 
 - name: Thales
   ats: sitemap_jsonld
@@ -260,3 +261,30 @@
   tags: [distribution, sitemap_jsonld]
   # search_terms narrowed to 18 real postings fetched, confirmed live
   # (e.g. "Stage Datacom & Security Specialist", real "stage" content)
+
+# M11 B1: added after Part A's slug-vocabulary fallback fix. M10 rejected
+# this employer for "zero slug matches" because its sitemap uses
+# WordPress-plugin URLs with no French search_terms in the slug at all;
+# the new DEFAULT_SLUG_VOCABULARY's "stage" substring-matches "stagiaire"
+# and got through.
+
+- name: Manitou
+  ats: sitemap_jsonld
+  identifier: https://careers.manitou-group.com/sitemap_index.xml
+  tier: warm
+  tags: [industrial, sitemap_jsonld]
+  # slug_vocabulary path matched 3 of 84 job-like URLs, confirmed live:
+  # "Stagiaire Marketing Produit", Ancenis FR -- real posting, real content.
+
+# M11 B1: Geodis investigated and NOT added. The domain carried forward
+# from M10's notes as "confirmed live" (workatgeodis.com) is a genuine
+# sitemap_jsonld source, but live-verification this session shows it is
+# GEODIS's North America subsidiary board -- 256 job-like URLs, all
+# US/Canada warehouse and logistics roles, zero slug-vocabulary matches
+# (no stage/alternance/intern/trainee/vie anywhere), so it would never
+# surface a French posting. GEODIS's actual French job board is
+# https://injob.geodis.com (linked from geodis.com/fr/carriere), a
+# proprietary ASP.NET portal -- no sitemap.xml (404), no ld+json on the
+# pages checked. It doesn't fit this adapter; a bespoke adapter would be
+# needed, out of scope for M11. Recorded here so no future session
+# re-guesses workatgeodis.com for this company.
