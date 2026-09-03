@@ -44,6 +44,17 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# M13 Part B: "slow" was documented as "opted into rather than run by
+# default" since M9e but never actually enforced -- it worked only because
+# the one slow test used to skip itself (the loopback network guard it
+# needed didn't exist yet). Now that conftest.py's guard permits
+# 127.0.0.1/::1 and that test genuinely passes instead of skipping, nothing
+# was left excluding it from a bare `pytest` run, and the suite blew past
+# CLAUDE.md's 15-second budget (real Chromium launch, ~10s alone). This
+# addopts is what the marker's own description always claimed was true:
+# `pytest -m slow` (or `-m ""` to clear this default) still runs it for
+# real, on demand.
+addopts = "-m 'not slow'"
 markers = [
     "slow: a real-integration test, opted into rather than run by default (M9e: the one real-Playwright test)",
 ]

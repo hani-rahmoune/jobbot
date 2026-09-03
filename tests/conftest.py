@@ -37,11 +37,53 @@ def _blocked(*args: object, **kwargs: object) -> None:
     )
 
 
+# M13 Part B, APPROVED BY THE USER: the guard permits 127.0.0.1 and ::1 only
+# -- Playwright's sync API drives its browser over a local loopback
+# socketpair on Windows, which this guard was blocking outright, forcing
+# test_real_playwright_renders_a_real_page to skip instead of run. Every
+# other host stays blocked, with the exact same error message as before --
+# this is a narrow carve-out, not a change to what the guard means for any
+# real (non-loopback) address.
+_ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
+
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+_real_create_connection = socket.create_connection
+
+
+def _address_host(address: object) -> object:
+    """The host is address[0] for both an AF_INET (host, port) tuple and an
+    AF_INET6 (host, port, flowinfo, scopeid) one -- indexing rather than
+    unpacking so a non-tuple address (unexpected here, but not this guard's
+    business to validate) doesn't itself raise before `_blocked` can."""
+    if isinstance(address, tuple) and address:
+        return address[0]
+    return None
+
+
+def _guarded_connect(self: socket.socket, address: object, *args: object, **kwargs: object) -> object:
+    if _address_host(address) in _ALLOWED_LOOPBACK_HOSTS:
+        return _real_connect(self, address, *args, **kwargs)
+    return _blocked()
+
+
+def _guarded_connect_ex(self: socket.socket, address: object, *args: object, **kwargs: object) -> object:
+    if _address_host(address) in _ALLOWED_LOOPBACK_HOSTS:
+        return _real_connect_ex(self, address, *args, **kwargs)
+    return _blocked()
+
+
+def _guarded_create_connection(address: object, *args: object, **kwargs: object) -> object:
+    if _address_host(address) in _ALLOWED_LOOPBACK_HOSTS:
+        return _real_create_connection(address, *args, **kwargs)
+    return _blocked()
+
+
 @pytest.fixture(autouse=True)
 def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(socket.socket, "connect", _blocked)
-    monkeypatch.setattr(socket.socket, "connect_ex", _blocked)
-    monkeypatch.setattr(socket, "create_connection", _blocked)
+    monkeypatch.setattr(socket.socket, "connect", _guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _guarded_connect_ex)
+    monkeypatch.setattr(socket, "create_connection", _guarded_create_connection)
 
 
 @pytest.fixture

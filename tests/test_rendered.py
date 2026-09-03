@@ -7,7 +7,7 @@ from typing import Self
 import httpx
 import pytest
 import respx
-from conftest import TEST_USER_AGENT, NetworkAccessDisabledError
+from conftest import TEST_USER_AGENT
 
 from jobbot.sources.base import SourceError
 from jobbot.sources.rendered import RenderedSource
@@ -365,32 +365,22 @@ def test_real_playwright_renders_a_real_page(mock_client: httpx.Client) -> None:
     still mocked via respx, same as every other test in this file and the
     same as CLAUDE.md rule 6 requires everywhere. The browser's own actual
     page traffic is a real, separate Chromium subprocess with its own
-    network stack -- but confirmed live (not assumed): on Windows,
-    Playwright's SYNC API also opens a local loopback socketpair for its
-    own driver-process IPC, which DOES go through Python's `socket` module
-    and so IS caught by conftest.py's blanket, load-bearing `_block_network`
-    guard (CLAUDE.md: edit only with confirmation, never unilaterally).
-    Rather than either weaken that guard or let this one opt-in test hard-
-    fail for anyone who installs the optional extra, that specific,
-    identified failure mode is treated as a skip, with the real reason
-    surfaced -- everything else about this test still runs for real.
+    network stack. On Windows, Playwright's SYNC API also opens a local
+    loopback socketpair for its own driver-process IPC, which DOES go
+    through Python's `socket` module -- confirmed live to need
+    conftest.py's `_block_network` guard to specifically permit 127.0.0.1/
+    ::1 (M13 Part B, approved by the user) for this test to run at all
+    rather than skip; every other host stays blocked by that same guard.
     """
     source = RenderedSource(
         "https://example.com", "Example", mock_client, user_agent=TEST_USER_AGENT
     )
-    try:
-        with respx.mock:
-            respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-            # example.com has no jobs, obviously -- this only proves the real
-            # browser launches, navigates, and returns cleanly (an empty list,
-            # M8b's valid non-failing outcome), not that any adapter logic
-            # beyond that is exercised against real content.
-            jobs = source.fetch()
-    except NetworkAccessDisabledError:
-        pytest.skip(
-            "Playwright's sync API needs a local loopback socket for its own "
-            "driver-process IPC on this platform, which conftest.py's "
-            "no-network guard also blocks -- see this test's own docstring."
-        )
+    with respx.mock:
+        respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
+        # example.com has no jobs, obviously -- this only proves the real
+        # browser launches, navigates, and returns cleanly (an empty list,
+        # M8b's valid non-failing outcome), not that any adapter logic
+        # beyond that is exercised against real content.
+        jobs = source.fetch()
 
     assert jobs == []
