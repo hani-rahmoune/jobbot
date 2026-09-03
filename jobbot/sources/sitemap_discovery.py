@@ -224,12 +224,26 @@ class SitemapDiscovery:
         return response.text
 
     def discover_job_urls(self, sitemap_url: str) -> list[str]:
+        """Fetches `sitemap_url` itself, then traverses it. Split out as
+        discover_job_urls_from_text() (M12 Part A) for a caller that needs
+        to inspect the top-level document BEFORE committing to sitemap
+        traversal -- successfactors.py fetches once, sniffs whether the
+        response is this shape (a <loc>-based urlset/sitemapindex) or an RSS
+        feed (a different SuccessFactors RMK tenant configuration entirely,
+        see that module's docstring), and only calls
+        discover_job_urls_from_text() for the former, without a redundant
+        second fetch of the same URL."""
+        return self.discover_job_urls_from_text(sitemap_url, self.fetch_text(sitemap_url))
+
+    def discover_job_urls_from_text(self, sitemap_url: str, top_level_text: str) -> list[str]:
         """Index -> leaf sitemaps -> <loc> entries -> job-shaped URLs -> the
         three-layer narrowing. Returns the final list of URLs the calling
         adapter should fetch and parse. Logs which path fired and the
         resulting candidate count, once, regardless of which adapter
-        called it (M11 A3)."""
-        top_level_urls = extract_locs(self.fetch_text(sitemap_url), sitemap_url)
+        called it (M11 A3). `top_level_text` is the already-fetched content
+        of `sitemap_url` -- see discover_job_urls() for the common case
+        where the caller doesn't already have it in hand."""
+        top_level_urls = extract_locs(top_level_text, sitemap_url)
         sub_sitemaps = [u for u in top_level_urls if u.endswith(".xml")]
 
         # A one-level sitemap (no index) means the top-level document's own

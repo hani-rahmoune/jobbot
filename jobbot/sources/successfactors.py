@@ -78,27 +78,75 @@ content, not its URL, so an English-locale page describing a French posting
 is classified and located correctly regardless of which locale the redirect
 happened to choose.
 
-OUT OF SCOPE (M12 Part C, scope change 2): Nexans is a confirmed RMK tenant
-but is fully client-rendered -- even its sitemap-listed job URLs' real
-content only appears after JavaScript executes; the raw HTML shows literal
-unresolved template placeholders (`${translations[locale]....}`) even on the
-redirect target. It belongs to rendered.py, not this adapter. Also excluded,
-for a different reason: Capgemini, Alstom, and Sephora are confirmed RMK
-tenants whose "sitemap.xml" is an RSS 2.0 feed (not the `<loc>`-based urlset
-this adapter's discovery expects) and, at least for Capgemini, returns a
-single stale-looking item on every fetch rather than a real board -- no
-working discovery mechanism was found for these three this session.
+OUT OF SCOPE: Nexans is a confirmed RMK tenant but is fully client-rendered
+-- even its sitemap-listed job URLs' real content only appears after
+JavaScript executes; the raw HTML shows literal unresolved template
+placeholders (`${translations[locale]....}`) even on the redirect target.
+It belongs to rendered.py, not this adapter.
+
+RSS MODE (M13 Part A): M12 found Capgemini, Alstom, and Sephora's
+"sitemap.xml" serving an RSS 2.0 feed instead of the `<loc>`-based urlset
+above, and wrote off all three as unusable from Capgemini alone returning a
+single stale item on every fetch (confirmed again this session: no query
+parameter -- locale, country, category, startrow, rows, limit -- changes
+that; every alternate path checked, /rss, /feed, /jobs.rss, /viewalljobs,
+/topjobs, several numbered/locale-scoped sitemap variants, either 404s,
+redirects to an error page, or serves the same generic page shell; the
+`rmk-map-N.jobs2web.com` host the CSP header names turns out to be the RMK
+platform's own shared sitemap-generation service, confirmed by fetching it
+directly and getting back its own literal "SitemapGenerator Error" -- the
+one query parameter tried there wasn't the right one and no correct one was
+found; the JS-driven live listing goes through `/services/t/l`, which
+robots.txt disallows on every tenant, so it's out of bounds regardless).
+Capgemini's feed is genuinely, permanently stuck at one item by every method
+tried -- NOT added.
+
+But checking Alstom and Sephora's own item counts directly (M12 never did --
+it inferred "broken like Capgemini" from the shared RSS shape alone, without
+counting) found them fully real and enormous: 2189 and 1918 items
+respectively, covering the whole board. Three tenants sharing one *format*
+turned out to be two different situations -- a working feed format nobody
+had parsed yet, and one tenant's own feed being stuck regardless of format.
+So this adapter gained a genuine second discovery mode, auto-detected from
+the fetched document's own shape (an `<rss>` root vs a `<urlset>`/
+`<sitemapindex>` one) rather than configured per company:
+
+- Each `<item>` already carries `<title>`, `<description>` (HTML, CDATA-
+  wrapped and entity-escaped -- same double-escaping sitemap_jsonld.py's
+  Thales/Orange fixtures carry, unescaped before strip_html() for the same
+  reason), `<link>`, and Google Jobs feed namespace fields `<g:id>` and
+  `<g:location>` (already a clean "City, country-code" string). No
+  individual job page needs fetching at all in this mode -- the feed IS the
+  full board, so `search_terms`/`slug_vocabulary`/`sample_size`/`page_cap`
+  (real network-cost controls for the discover-many-URLs-then-fetch-each-one
+  mode above) have no meaning here and are simply unused; the constructor
+  still accepts them uniformly since a company's identifier doesn't reveal
+  which mode it'll turn out to be until fetched.
+- Parsed with `xml.etree.ElementTree`, not regex -- unlike Microdata/HTML
+  (which is routinely not well-formed enough for a strict parser and is why
+  _ItemPropExtractor exists), a real RSS document IS well-formed XML by
+  spec, so a real parser is the right tool and gives the "malformed feed
+  raises SourceError" behavior almost for free: `ET.ParseError` on genuinely
+  broken XML becomes a SourceError; a well-formed-but-empty feed (parses
+  fine, zero `<item>`s) is a legitimate M8b zero-result, not an error.
+- A trailing " (City, country-code)" on the title, when it exactly matches
+  the `<g:location>` value, is stripped -- confirmed live on every RSS
+  tenant's own titles (e.g. "Specialist - Roma via del Corso (Roma, IT)"),
+  redundant once the real location field is already captured separately.
 
 The identifier is the tenant's sitemap URL, e.g.
 "https://jobs.eramet.com/sitemap.xml" -- the same convention
 sitemap_jsonld.py uses, and for the same reason: it's the one thing every
-confirmed tenant reliably serves at a fixed, robots.txt-permitted, real URL.
+confirmed tenant reliably serves at a fixed, robots.txt-permitted, real URL,
+regardless of which shape it turns out to serve there.
 """
 
 from __future__ import annotations
 
+import html
 import logging
 import re
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlsplit
 
@@ -110,6 +158,11 @@ from jobbot.sources.classify import classify_contract_type
 from jobbot.sources.html_text import strip_html
 from jobbot.sources.robots import RobotsCache
 from jobbot.sources.sitemap_discovery import DEFAULT_PAGE_CAP, DEFAULT_SAMPLE_SIZE, SitemapDiscovery
+
+# Google Jobs feed namespace -- the RSS mode's <g:id>/<g:location> fields
+# (M13 Part A).
+_GOOGLE_JOBS_NS = "http://base.google.com/ns/1.0"
+_RSS_SHAPE_RE = re.compile(r"<rss\b", re.IGNORECASE)
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +293,65 @@ def _city_from_slug(job_url: str) -> str:
     return first_word.strip()
 
 
+# --- RSS mode (M13 Part A) ---------------------------------------------
+
+
+def _looks_like_rss(text: str) -> bool:
+    """A cheap prefix sniff, not a parse -- real RSS documents open with
+    <rss ...> right after the XML declaration, real urlset/sitemapindex
+    documents never contain that tag at all. Only the first slice is
+    checked so this stays cheap even against a multi-megabyte sitemap."""
+    return bool(_RSS_SHAPE_RE.search(text[:500]))
+
+
+def _strip_redundant_location_suffix(title: str, location: str) -> str:
+    """This vendor's RSS-mode title always repeats the location in a
+    trailing "(City, CC)" -- confirmed live across every tenant checked
+    (e.g. "Specialist - Roma via del Corso (Roma, IT)"). Stripped only when
+    it's an EXACT match for the already-captured <g:location> value, never a
+    blind parenthetical strip, so a title that legitimately ends in
+    unrelated parentheses (e.g. "(H/F)") is never touched."""
+    if not location:
+        return title
+    suffix = f" ({location})"
+    if title.endswith(suffix):
+        return title[: -len(suffix)]
+    return title
+
+
+def _parse_rss_feed(text: str, source_name: str, company_name: str) -> list[dict]:
+    """A real RSS document is well-formed XML by spec (unlike arbitrary
+    HTML), so a real parser is used here rather than regex -- ET.ParseError
+    on genuinely malformed content becomes a SourceError; a well-formed but
+    empty feed (no <item>s) is a legitimate M8b zero-result, not an error.
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise SourceError(
+            f"{source_name}: malformed RSS feed for {company_name}: {exc}"
+        ) from exc
+
+    entries: list[dict] = []
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        title = (item.findtext("title") or "").strip()
+        description = item.findtext("description") or ""
+        location = (item.findtext(f"{{{_GOOGLE_JOBS_NS}}}location") or "").strip()
+        external_id = (item.findtext(f"{{{_GOOGLE_JOBS_NS}}}id") or "").strip()
+        entries.append(
+            {
+                "mode": "rss",
+                "url": link,
+                "title": _strip_redundant_location_suffix(title, location),
+                "description": description,
+                "location": location,
+                "external_id": external_id or link,
+            }
+        )
+    return entries
+
+
 class SuccessFactorsSource(JobSource):
     name = "successfactors"
     tier = 1
@@ -289,7 +401,22 @@ class SuccessFactorsSource(JobSource):
                 f"for {self.company_name}"
             )
 
-        urls_to_fetch = self._discovery.discover_job_urls(self.identifier)
+        # M13 Part A: fetched once, then the document's OWN shape decides
+        # the mode -- an <rss> root (Capgemini/Alstom/Sephora's tenant
+        # configuration) is parsed directly with everything it already
+        # carries; anything else is the <loc>-based urlset/sitemapindex
+        # every other tenant serves, handled exactly as before. Never
+        # configured per company: the identifier is the same "the tenant's
+        # sitemap URL" either way, and which shape it resolves to is a
+        # tenant-side detail this adapter shouldn't need told to it.
+        top_level_text = self._discovery.fetch_text(self.identifier)
+
+        if _looks_like_rss(top_level_text):
+            return _parse_rss_feed(top_level_text, self.name, self.company_name), None
+
+        urls_to_fetch = self._discovery.discover_job_urls_from_text(
+            self.identifier, top_level_text
+        )
 
         postings: list[dict] = []
         for job_url in urls_to_fetch:
@@ -314,17 +441,42 @@ class SuccessFactorsSource(JobSource):
                 self.company_name, exc,
             )
             return None
-        return {"url": job_url, "html": html_text}
+        return {"mode": "sitemap", "url": job_url, "html": html_text}
 
     # --- parse() -------------------------------------------------------
 
     def parse(self, raw: list[dict]) -> list[Job]:
         jobs: list[Job] = []
         for entry in raw:
-            job = self._parse_entry(entry)
+            job = self._parse_rss_entry(entry) if entry.get("mode") == "rss" else self._parse_entry(entry)
             if job is not None:
                 jobs.append(job)
         return jobs
+
+    def _parse_rss_entry(self, entry: dict) -> Job | None:
+        title = entry["title"]
+        if not title:
+            # Never invent a value: same rule as the sitemap-mode path.
+            logger.warning(
+                "successfactors: skipping %s for %s: RSS item has no title",
+                entry.get("url") or "<no url>", self.company_name,
+            )
+            return None
+
+        description = strip_html(html.unescape(entry["description"]))
+        contract_type = classify_contract_type(title, description, "")
+
+        return Job(
+            company=self.company_name,
+            title=title,
+            location=entry["location"] or _city_from_slug(entry["url"]),
+            contract_type=contract_type,
+            url=entry["url"],
+            posted_at=None,  # feed carries an expiration date, not a posting one
+            description=description,
+            source=self.name,
+            external_id=entry["external_id"],
+        )
 
     def _parse_entry(self, entry: dict) -> Job | None:
         job_url = entry["url"]

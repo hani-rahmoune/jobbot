@@ -363,14 +363,19 @@
 #
 # Confirmed RMK tenants from this sweep are added below with an
 # `ats: successfactors` entry each; see jobbot/sources/successfactors.py.
-# Nexans, Capgemini, Alstom, and Sephora are ALSO confirmed RMK tenants but
-# are NOT listed here -- Nexans is fully client-rendered (belongs to
-# rendered.py instead, M12 Part F); Capgemini/Alstom/Sephora's "sitemap.xml"
-# is an RSS 2.0 feed, not the <loc>-based urlset this adapter's discovery
-# expects, and no other working discovery mechanism was found for them this
-# session. Recorded here so a future session doesn't re-probe these four
-# from scratch -- the vendor identification stands, only the specific
-# per-tenant discovery mechanism is what's missing.
+#
+# M13 Part A correction: M12 wrote off Capgemini, Alstom, and Sephora
+# together as "sitemap.xml is an RSS feed, not usable" -- true of the format,
+# but M12 never actually checked Alstom/Sephora's own item counts, only
+# inferred "broken like Capgemini" from the shared shape. They aren't: RSS
+# mode is now a real, tested second discovery path (see
+# jobbot/sources/successfactors.py's module docstring), and Alstom/Sephora's
+# feeds are large and genuinely current (2000+ items each, both added
+# below). Capgemini's own feed is a real, separate problem -- confirmed
+# stuck at exactly one item by every parameter, path, and alternate host
+# tried this session (see the module docstring's RSS MODE section for the
+# full list) -- and stays excluded. Nexans stays excluded too, for its own
+# reason: fully client-rendered, belongs to rendered.py (M13 Part C).
 
 - name: Eramet
   ats: successfactors
@@ -439,3 +444,29 @@
   tags: [pharma, successfactors]
   # slug_vocabulary path hit the 150-page cap (259 real candidates matched,
   # by far the largest of this sweep) -- confirmed live.
+
+# M13 Part A: RSS-mode tenants, confirmed live via the adapter's new second
+# discovery mode. Both feeds are the FULL board, not narrowed by
+# search_terms/slug_vocabulary/page_cap (RSS mode has no per-URL fetch cost
+# to control -- see the module docstring) -- filters.yaml does the real
+# narrowing downstream, same as every other bulk-listing adapter.
+
+- name: Alstom
+  ats: successfactors
+  identifier: https://jobsearch.alstom.com/sitemap.xml
+  tier: warm
+  tags: [rail, industrial, successfactors]
+  # RSS mode, ~2300 items, confirmed live: real French "Alternance"/"Stage"
+  # postings (Rouen, Ornans, Saint-Ouen), correctly classified.
+
+- name: Sephora
+  ats: successfactors
+  identifier: https://jobs.sephora.com/sitemap.xml
+  tier: warm
+  tags: [retail, beauty, successfactors]
+  # RSS mode, ~1900 items, confirmed live: real French "Alternance"/"Stage"
+  # postings. Note: a VIE role's <g:location> field names the sponsoring
+  # French entity's country code, not the physical work location (a real
+  # Chicago-based VIE reads "Chicago, FR") -- a genuine source convention,
+  # relayed as-is rather than corrected, same principle as CLAUDE.md's
+  # source-dates rule.

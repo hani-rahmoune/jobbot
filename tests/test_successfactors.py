@@ -15,7 +15,14 @@ import respx
 from conftest import FIXTURES_DIR, TEST_USER_AGENT
 
 from jobbot.sources.base import SourceError, SourceNotFoundError
-from jobbot.sources.successfactors import SuccessFactorsSource, _city_from_slug, _extract_itemprops
+from jobbot.sources.successfactors import (
+    SuccessFactorsSource,
+    _city_from_slug,
+    _extract_itemprops,
+    _looks_like_rss,
+    _parse_rss_feed,
+    _strip_redundant_location_suffix,
+)
 
 SF_FIXTURES_DIR = FIXTURES_DIR / "successfactors"
 BASE_URL = "https://jobs.example.com"
@@ -327,3 +334,113 @@ def test_a_job_url_that_redirects_to_a_locale_suffixed_path_still_yields_its_pos
 
     assert len(jobs) == 1
     assert jobs[0].title == "Alternance Data Analyst - Direction Data F/H"
+
+
+# --- RSS mode (M13 Part A) -----------------------------------------------
+
+
+def test_looks_like_rss_recognizes_an_rss_root() -> None:
+    assert _looks_like_rss(_read_fixture("rss_feed.xml")) is True
+
+
+def test_looks_like_rss_rejects_a_urlset_sitemap() -> None:
+    assert _looks_like_rss(_read_fixture("sitemap.xml")) is False
+
+
+def test_strip_redundant_location_suffix_only_matches_exactly() -> None:
+    assert (
+        _strip_redundant_location_suffix("Specialist - Roma via del Corso (Roma, IT)", "Roma, IT")
+        == "Specialist - Roma via del Corso"
+    )
+    # A title that legitimately ends in unrelated parentheses is untouched.
+    assert _strip_redundant_location_suffix("Alternance Data Analyst (H/F)", "Paris, FR") == (
+        "Alternance Data Analyst (H/F)"
+    )
+    # No location captured at all -- nothing to strip.
+    assert _strip_redundant_location_suffix("Some Title (Paris, FR)", "") == "Some Title (Paris, FR)"
+
+
+def test_parse_rss_feed_extracts_every_item(mock_client: httpx.Client) -> None:
+    entries = _parse_rss_feed(_read_fixture("rss_feed.xml"), "successfactors", "Example Corp")
+    assert len(entries) == 3
+    assert all(e["mode"] == "rss" for e in entries)
+
+
+def test_parse_rss_feed_pulls_google_jobs_namespace_fields() -> None:
+    entries = _parse_rss_feed(_read_fixture("rss_feed.xml"), "successfactors", "Example Corp")
+    roma = next(e for e in entries if "Roma" in e["url"])
+    assert roma["location"] == "Roma, IT"
+    assert roma["external_id"] == "1157265455"
+    assert roma["title"] == "Specialist - Roma via del Corso"  # location suffix stripped
+
+
+def test_parse_rss_feed_unescapes_and_strips_the_cdata_description() -> None:
+    entries = _parse_rss_feed(_read_fixture("rss_feed.xml"), "successfactors", "Example Corp")
+    vie = next(e for e in entries if "Chicago" in e["url"])
+    # description is raw (still HTML+entity-escaped) at this layer -- the
+    # adapter's own parse() is what runs strip_html()/html.unescape() on it.
+    assert "&lt;p&gt;" in vie["description"]
+    assert "VIE assignment" in vie["description"]
+
+
+def test_a_genuinely_malformed_rss_feed_raises_source_error() -> None:
+    with pytest.raises(SourceError):
+        _parse_rss_feed(_read_fixture("rss_feed_malformed.xml"), "successfactors", "Example Corp")
+
+
+def test_a_well_formed_but_empty_rss_feed_is_not_an_error() -> None:
+    empty = (
+        '<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0">'
+        "<channel><title>Example Careers</title></channel></rss>"
+    )
+    assert _parse_rss_feed(empty, "successfactors", "Example Corp") == []
+
+
+def test_fetch_auto_detects_rss_mode_and_needs_no_further_requests(mock_client: httpx.Client) -> None:
+    """RSS mode's whole point: the feed already carries everything, so
+    fetch() must not make any request beyond the one for the feed itself --
+    confirmed here by mocking ONLY that one URL and nothing else."""
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        feed_route = respx.get(SITEMAP_URL).mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
+        )
+        jobs = source.fetch()
+
+    assert feed_route.call_count == 1
+    assert len(jobs) == 3
+
+
+def test_rss_mode_jobs_are_correctly_classified_and_located(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(SITEMAP_URL).mock(return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml")))
+        jobs = source.fetch()
+
+    by_id = {j.external_id: j for j in jobs}
+    conseiller = by_id["1354838755"]
+    assert conseiller.location == "Paris, FR"
+    assert conseiller.contract_type == "other"  # a plain CDI role, no internship/apprenticeship vocabulary
+
+    vie = by_id["1337424655"]
+    # Confirmed live on Sephora's real feed: a VIE role's <g:location> names
+    # the sponsoring French entity's country code, not the physical work
+    # location (this one's own title says "Chicago, US") -- a genuine
+    # source-data convention, not a parsing bug, and not something this
+    # adapter corrects (same principle as CLAUDE.md's source-dates rule:
+    # relay what the source says, don't second-guess it).
+    assert vie.location == "Chicago, FR"
+    assert "VIE assignment" in vie.description  # entities unescaped, tags stripped
+
+
+def test_fetch_raises_source_error_on_a_malformed_rss_feed(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(SITEMAP_URL).mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed_malformed.xml"))
+        )
+        with pytest.raises(SourceError):
+            source.fetch()
