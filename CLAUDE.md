@@ -18,6 +18,10 @@ If a prompt conflicts with this file, follow this file and flag the conflict.
    JobTeaser, and anything similar. Do not add, suggest, or scaffold adapters for
    them, ever. They republish stale openings with refreshed dates, which is the
    exact failure this project exists to avoid.
+   This includes Welcome to the Jungle's per-employer API and its Welcome Kit
+   hosted pages. The user has decided: WTTJ in any form is excluded. Do not
+   propose it again.
+   
 
 3. **Discovery is not aggregation.** Using a company directory or startup
    ecosystem listing to FIND an employer and locate their careers page is
