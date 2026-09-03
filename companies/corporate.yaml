@@ -325,3 +325,41 @@
   identifier: scaleway
   tier: warm
   tags: [cloud, tech, lever]
+
+# M12 Part B: Danone (careers.danone.com) is NOT SAP SuccessFactors, despite
+# an earlier session's identification. Its job pages link straight to
+# https://frapply-danone.icims.com/jobs/{id}/login -- the id matches the
+# job's own URL slug exactly. Danone's real ATS backend is iCIMS, fronted by
+# Adobe Experience Manager (its CSP header is full of *.adobeaemcloud.com,
+# zero successfactors/sapsf/jobs2web references anywhere -- confirmed by
+# direct inspection, not inferred from the URL shape, which is what caused
+# the original misidentification). iCIMS is already a known-rejected vendor
+# (M9b). Do not re-attempt Danone via successfactors.py or re-investigate
+# this as an open question; it's closed. See the M12 report for the full
+# three-independent-signal method that ruled SuccessFactors out.
+#
+# M12 Part B4: probed discovery/probe_rmk.py against every resolved domain
+# for these employers and found NO RMK signal (checked, not just unresolved)
+# -- recorded here so a future session doesn't re-probe them: Safran
+# (safran-group.com), Schneider Electric (careers.se.com), Saint-Gobain
+# (joinus.saint-gobain.com, no robots.txt/sitemap at all -- likely a
+# Drupal-hosted page with a separate embedded widget, not investigated
+# further), Groupama (groupama-gan-recrute.com), BPCE (recrutement.bpce.fr),
+# Natixis (recrutement.natixis.com), Enedis (enedis.fr), Elior
+# (eliorgroup.com), Groupe SEB (groupeseb-careers.com, 404s), Covea
+# (recrutement.covea.com -- actually Cornerstone OnDemand, csod.com, per its
+# own linked application portal), Decathlon (recrutement.decathlon.fr and
+# joinus.decathlon.fr), L'Oreal (career.loreal.com), Michelin
+# (recrutement.michelin.fr), Hermes (talents.hermes.com), Amadeus
+# (jobs.amadeus.com / amadeus.com), Legrand (careers.legrand.com -- the real
+# electrical-equipment company, not the wrong-entity carrieres.groupe-legrand.fr
+# from M11), Dassault Systemes (3ds.com), La Poste (laposterecrute.fr),
+# Kering (kering.com), TotalEnergies (jobs.totalenergies.com -- confirmed
+# Avature, see M11), Credit Agricole SA (groupecreditagricole.jobs), Societe
+# Generale (careers.societegenerale.com). Bouygues, Vinci, Suez, Intermarche,
+# and Accenture France had no single clean careers domain resolve at all
+# this session (aggregator results only, or a per-entity split with no one
+# obvious host) -- genuinely unresolved, not checked-negative.
+#
+# Confirmed RMK tenants from this sweep are added below with an
+# `ats: successfactors` entry each; see jobbot/sources/successfactors.py.

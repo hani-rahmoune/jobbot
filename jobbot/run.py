@@ -96,6 +96,7 @@ from jobbot.sources.rendered import (
 )
 from jobbot.sources.sitemap_jsonld import SitemapJsonLdSource
 from jobbot.sources.smartrecruiters import SmartRecruitersSource
+from jobbot.sources.successfactors import SuccessFactorsSource
 from jobbot.sources.talentsoft import TalentsoftSource
 from jobbot.sources.workday import WorkdaySource
 from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
@@ -108,6 +109,7 @@ from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 # client-side sitemap-slug pre-filter) and real narrowing numbers.
 _SEARCH_CAPABLE_ADAPTERS = (
     WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource, SitemapJsonLdSource,
+    SuccessFactorsSource,
 )
 
 logger = logging.getLogger(__name__)

@@ -27,12 +27,20 @@ from pydantic import BaseModel, Field, ValidationError
 # older product ("classic" iCIMS, distinct from Jibe) plus Phenom People,
 # Oleeo, Avature, Taleo, and SAP SuccessFactors were all re-investigated for
 # M9 too and confirmed still not viable -- see the M9 report for why each
-# one specifically). An identifier not in this set is a config typo or an
-# ATS we haven't built, either way it's an error, not a silent skip.
+# one specifically. M12 Part B re-investigated SAP SuccessFactors again,
+# this time by direct inspection of live tenants (Eramet, Nexans, Worldline,
+# Capgemini) rather than vendor documentation, and found its Recruiting
+# Marketing product (RMK, formerly sold as Jobs2Web -- a distinct,
+# candidate-facing layer from whatever was checked before) genuinely
+# public, unauthenticated, and sitemap-discoverable -- see
+# jobbot/sources/successfactors.py's module docstring for the three
+# confirmation signals and discovery/probe_rmk.py for the tenant sweep. An
+# identifier not in this set is a config typo or an ATS we haven't built,
+# either way it's an error, not a silent skip.
 KNOWN_ATS = frozenset(
     {
         "greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe",
-        "talentsoft", "sitemap_jsonld", "rendered",
+        "talentsoft", "sitemap_jsonld", "rendered", "successfactors",
     }
 )
 

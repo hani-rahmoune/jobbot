@@ -75,6 +75,7 @@ from jobbot.sources.lever import LeverSource
 from jobbot.sources.robots import RobotsCache
 from jobbot.sources.sitemap_jsonld import SitemapJsonLdSource
 from jobbot.sources.smartrecruiters import SmartRecruitersSource
+from jobbot.sources.successfactors import SuccessFactorsSource
 from jobbot.sources.talentsoft import TalentsoftSource
 from jobbot.sources.workday import WorkdaySource
 
@@ -197,6 +198,18 @@ _ATS_SIGNATURES: list[tuple[str, list[tuple[re.Pattern[str], Callable[[re.Match[
 # domain, checked separately from the token-capturing loop above.
 _JIBE_SIGNATURE_RE = re.compile(r"jibecdn\.com", re.IGNORECASE)
 
+# M12 Part B4: SAP SuccessFactors Recruiting Marketing (RMK, formerly
+# Jobs2Web) has no shared host either -- every tenant runs on its own
+# domain -- but every tenant confirmed live (Eramet, Nexans, Worldline,
+# Capgemini, and the M12 Part B4 sweep's further hits) loads
+# /platform/js/j2w/j2w.fallbacks.js, including Nexans's fully client-
+# rendered tenant (this script IS what does that tenant's client-side
+# templating), so it survives as a detection signal even on a tenant whose
+# rendered content this adapter can't actually use. The identifier is the
+# tenant's own sitemap URL (jobbot/sources/successfactors.py's own
+# discovery mechanism), not just the bare domain the way Jibe's is.
+_SUCCESSFACTORS_SIGNATURE_RE = re.compile(r"/platform/js/j2w/j2w\.fallbacks\.js", re.IGNORECASE)
+
 # Lightweight presence check, not a full extraction (jsonld.py's own adapter
 # does the real parsing at fetch time) -- just enough to tell "this page has
 # JobPosting structured markup" from "this page has neither".
@@ -222,6 +235,10 @@ def detect_ats(html: str, page_url: str) -> tuple[str | None, str | None]:
         parsed = urlsplit(page_url)
         return "jibe", f"{parsed.scheme}://{parsed.netloc}"
 
+    if _SUCCESSFACTORS_SIGNATURE_RE.search(html):
+        parsed = urlsplit(page_url)
+        return "successfactors", f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
+
     for script_match in _JSONLD_SCRIPT_RE.finditer(html):
         if "JobPosting" in script_match.group(1):
             return "jsonld", page_url
@@ -239,6 +256,7 @@ _ADAPTER_CLASSES: dict[str, type[JobSource]] = {
     "talentsoft": TalentsoftSource,
     "jibe": JibeSource,
     "sitemap_jsonld": SitemapJsonLdSource,
+    "successfactors": SuccessFactorsSource,
 }
 
 

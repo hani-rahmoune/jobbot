@@ -21,6 +21,7 @@ from jobbot.sources import (  # noqa: F401
     rendered,
     sitemap_jsonld,
     smartrecruiters,
+    successfactors,
     talentsoft,
     workday,
 )
