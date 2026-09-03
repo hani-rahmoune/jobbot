@@ -17,6 +17,7 @@ from jobbot.config import CompanySource
 from jobbot.filters import FilterConfig, JobFilter, KeywordFilterConfig, LocationFilterConfig
 from jobbot.models import Job
 from jobbot.run import (
+    _fetch_one_concurrently,
     _HostThrottle,
     _HostThrottledTransport,
     _order_and_cap_companies,
@@ -1009,6 +1010,36 @@ def test_different_hosts_get_independent_semaphores() -> None:
     a = throttle.semaphore_for("a.example.invalid")
     b = throttle.semaphore_for("b.example.invalid")
     assert a is not b
+
+
+def test_a_redirecting_job_url_still_yields_its_posting() -> None:
+    """M12 Part A: the per-worker client now sets follow_redirects=True.
+    Without it, a job URL that 302s (locale-suffixed paths, canonicalization,
+    a trailing-slash normalization -- all real-world, not hypothetical) gets
+    the redirect response's own body back instead of the real page, and the
+    adapter's own parsing silently reads that as "no postings here" rather
+    than as a fetch failure -- there's no exception to surface, just an empty
+    result. Confirmed live cost before this fix: Nexans's entire board, 302s
+    on every job URL, never once reached. This test exercises the exact
+    function whose httpx.Client construction changed (_fetch_one_concurrently),
+    not the full run() pipeline, to isolate the fix from filter/store/webhook
+    machinery."""
+    company = _company(identifier="acme")
+    throttle = _HostThrottle(per_host_limit=2)
+    redirect_target = "https://boards-api.greenhouse.io/v1/boards/acme/jobs-fr"
+
+    with respx.mock:
+        respx.get(GREENHOUSE_BOARD.format(identifier="acme")).mock(
+            return_value=httpx.Response(302, headers={"Location": redirect_target})
+        )
+        respx.get(redirect_target).mock(return_value=httpx.Response(200, json=_minimal_payload(1)))
+
+        outcome = _fetch_one_concurrently(company, "jobbot-test/1.0", None, throttle)
+
+    assert outcome.build_error is None
+    assert outcome.fetch_error is None
+    assert outcome.jobs is not None
+    assert len(outcome.jobs) == 1
 
 
 # --- M9e: rendered-source ordering and per-poll cap ------------------------

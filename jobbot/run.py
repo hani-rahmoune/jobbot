@@ -424,7 +424,12 @@ def _fetch_one_concurrently(
     companies still respect the shared per-host limit.
     """
     transport = _HostThrottledTransport(httpx.HTTPTransport(), throttle)
-    with httpx.Client(transport=transport) as client:
+    # M12 Part A: follow_redirects=True -- without it, a job URL that
+    # 302s (locale-suffixed paths, canonicalization, trailing slashes) gets
+    # its redirect response body back instead of the real page, which every
+    # adapter's own parsing then silently reads as "no content here" rather
+    # than as a fetch failure. Confirmed live cost: Nexans's entire board.
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
         return fetch_source(company, client, user_agent, search_terms)
 
 
@@ -479,7 +484,12 @@ def run(
     # slip into `publishable`.
     effective_dry_run = dry_run or seed
 
-    with httpx.Client() as client, JobStore(
+    # M12 Part A: follow_redirects=True for consistency with the fetch-side
+    # client below -- this one only ever posts to the Discord webhook (see
+    # the comment a few lines down), so it's not where the Nexans-class bug
+    # lived, but "every httpx.Client in run.py follows redirects" is a
+    # simpler invariant to hold than "except this one, for reasons."
+    with httpx.Client(follow_redirects=True) as client, JobStore(
         settings.state_db_path,
         repost_window_days=settings.repost_window_days,
         resurrection_window_days=settings.resurrection_window_days,
