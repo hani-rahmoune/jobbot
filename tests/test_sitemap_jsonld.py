@@ -5,9 +5,14 @@ import pytest
 import respx
 from conftest import FIXTURES_DIR, TEST_USER_AGENT
 
-import jobbot.sources.sitemap_jsonld as sitemap_jsonld_module
 from jobbot.sources.base import SourceError, SourceNotFoundError
-from jobbot.sources.sitemap_jsonld import MAX_JOB_PAGES, SitemapJsonLdSource
+from jobbot.sources.sitemap_jsonld import (
+    DEFAULT_PAGE_CAP,
+    DEFAULT_SAMPLE_SIZE,
+    DEFAULT_SLUG_VOCABULARY,
+    SitemapJsonLdSource,
+    _evenly_spread_sample,
+)
 
 SJ_FIXTURES_DIR = FIXTURES_DIR / "sitemap_jsonld"
 BASE_URL = "https://careers.thalesgroup.com/fr/fr"
@@ -102,7 +107,14 @@ def test_fetch_raw_returns_a_two_tuple(mock_client: httpx.Client) -> None:
 
 
 def test_fetch_discovers_through_the_index_and_both_leaf_sitemaps(mock_client: httpx.Client) -> None:
-    source = _make_source(mock_client)
+    # slug_vocabulary=[] here and below: these tests are about the fetch+
+    # parse pipeline handling all 4 real fixture shapes, not about M11's
+    # selection layers (which have their own dedicated tests) -- an empty
+    # override disables vocabulary-narrowing so every candidate falls
+    # through to sampling (M11 A2) and all 4 get fetched, as these tests
+    # need to see the full varied set (valid, apprenticeship, no-JobPosting,
+    # malformed) in one fetch() call.
+    source = _make_source(mock_client, slug_vocabulary=[])
     with respx.mock:
         _mock_robots_allowed(respx.mock)
         _mock_full_sitemap_tree(respx.mock)
@@ -148,31 +160,41 @@ def test_non_job_urls_in_the_sitemap_are_never_fetched(mock_client: httpx.Client
     assert events_route.call_count == 0
 
 
-def test_returns_an_empty_list_rather_than_raising_when_no_job_urls_match(
+def test_returns_an_empty_list_rather_than_raising_when_sampling_finds_nothing(
     mock_client: httpx.Client,
 ) -> None:
-    # M8b: zero results is no longer automatically a failure.
+    # M8b: zero results is no longer automatically a failure. Neither
+    # search_terms nor the slug vocabulary matches these slugs, so this
+    # exercises the full fall-through to sampling (M11 A2) -- both
+    # candidates are genuinely fetched (not short-circuited), and simply
+    # carry no JobPosting JSON-LD at all.
     source = _make_source(mock_client, search_terms=["a-term-that-matches-nothing"])
+    sitemap = (
+        "<urlset>"
+        "<url><loc>https://careers.thalesgroup.com/fr/fr/job/1111/reseau-ingenieur</loc></url>"
+        "<url><loc>https://careers.thalesgroup.com/fr/fr/job/2222/comptable-senior</loc></url>"
+        "</urlset>"
+    )
     with respx.mock:
         _mock_robots_allowed(respx.mock)
-        respx.get(INDEX_URL).mock(
-            return_value=httpx.Response(200, text=_read_fixture("sitemap_index.xml"))
+        respx.get(INDEX_URL).mock(return_value=httpx.Response(200, text=sitemap))
+        route_1 = respx.get(f"{BASE_URL}/job/1111/reseau-ingenieur").mock(
+            return_value=httpx.Response(200, text="<html>no ld+json here</html>")
         )
-        respx.get(f"{BASE_URL}/sitemap1.xml").mock(
-            return_value=httpx.Response(200, text=_read_fixture("sitemap1.xml"))
-        )
-        respx.get(f"{BASE_URL}/sitemap2.xml").mock(
-            return_value=httpx.Response(200, text=_read_fixture("sitemap2.xml"))
+        route_2 = respx.get(f"{BASE_URL}/job/2222/comptable-senior").mock(
+            return_value=httpx.Response(200, text="<html>no ld+json here either</html>")
         )
         jobs = source.fetch()
 
     assert jobs == []
+    assert route_1.call_count == 1  # genuinely fetched, not skipped
+    assert route_2.call_count == 1
 
 
 def test_an_unreachable_job_page_is_skipped_with_a_warning_not_a_crash(
     mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
 ) -> None:
-    source = _make_source(mock_client)
+    source = _make_source(mock_client, slug_vocabulary=[])  # see the comment above, same reason
     with respx.mock:
         _mock_robots_allowed(respx.mock)
         respx.get(INDEX_URL).mock(
@@ -237,7 +259,7 @@ def test_fetch_raises_source_not_found_error_on_404(mock_client: httpx.Client) -
 
 
 def test_parse_maps_the_real_thales_fixture_correctly(mock_client: httpx.Client) -> None:
-    source = _make_source(mock_client)
+    source = _make_source(mock_client, slug_vocabulary=[])  # see the comment above, same reason
     with respx.mock:
         _mock_robots_allowed(respx.mock)
         _mock_full_sitemap_tree(respx.mock)
@@ -266,7 +288,7 @@ def test_parse_maps_the_real_thales_fixture_correctly(mock_client: httpx.Client)
 def test_malformed_entry_missing_title_is_skipped_with_a_logged_warning(
     mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
 ) -> None:
-    source = _make_source(mock_client)
+    source = _make_source(mock_client, slug_vocabulary=[])  # see the comment above, same reason
     with respx.mock:
         _mock_robots_allowed(respx.mock)
         _mock_full_sitemap_tree(respx.mock)
@@ -312,24 +334,177 @@ def test_search_terms_filter_candidate_urls_before_any_job_page_is_fetched(
     assert jobs[0].external_id == "IOS-2026-3001"
 
 
-def test_hits_the_job_page_cap_when_no_search_terms_narrow_a_large_candidate_set(
-    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_page_cap_is_configurable_per_instance_and_logged(
+    mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(sitemap_jsonld_module, "MAX_JOB_PAGES", 2)
-    source = _make_source(mock_client)
+    source = _make_source(mock_client, search_terms=["alternance"], page_cap=2)
+    sitemap = "<urlset>" + "".join(
+        f'<url><loc>{BASE_URL}/job/{i}/alternance-poste-{i}</loc></url>' for i in range(5)
+    ) + "</urlset>"
     with respx.mock:
         _mock_robots_allowed(respx.mock)
-        _mock_full_sitemap_tree(respx.mock)
+        respx.get(INDEX_URL).mock(return_value=httpx.Response(200, text=sitemap))
+        for i in range(5):
+            respx.get(f"{BASE_URL}/job/{i}/alternance-poste-{i}").mock(
+                return_value=httpx.Response(200, text="<html>no ld+json here</html>")
+            )
         with caplog.at_level("WARNING"):
             source.fetch()
 
         fetched_job_pages = [c for c in respx.mock.calls if "/job/" in str(c.request.url)]
-        assert len(fetched_job_pages) == 2  # capped, out of 4 real candidates
-    assert any("no search_terms configured" in r.message for r in caplog.records)
+        assert len(fetched_job_pages) == 2  # capped, out of 5 real search_terms matches
+
+    assert any(
+        "hit the 2-page cap on the 'search_terms' path" in r.message for r in caplog.records
+    )
 
 
-def test_max_job_pages_constant_is_a_sane_positive_bound() -> None:
-    assert MAX_JOB_PAGES > 0
+def test_default_page_cap_is_a_sane_positive_bound() -> None:
+    assert DEFAULT_PAGE_CAP > 0
+
+
+def test_default_page_cap_comfortably_exceeds_the_confirmed_accor_candidate_count() -> None:
+    # M11 A4: Accor alone had 86 real search_terms-matched candidates.
+    assert DEFAULT_PAGE_CAP > 86
+
+
+# --- slug_vocabulary fallback (M11 Part A) ---------------------------------
+
+
+def test_no_slug_vocabulary_override_uses_the_default(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    assert source.slug_vocabulary == list(DEFAULT_SLUG_VOCABULARY)
+
+
+def test_falls_back_to_slug_vocabulary_when_search_terms_matches_nothing(
+    mock_client: httpx.Client,
+) -> None:
+    # The real Thales fixture's "Alternance-Assistant-Marketing-Digital"
+    # slug matches DEFAULT_SLUG_VOCABULARY's "alternance" even though
+    # search_terms itself was configured with something that matches none
+    # of the fixture's slugs -- this is the exact fallback the bug needed.
+    source = _make_source(mock_client, search_terms=["a-term-that-matches-nothing"])
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap_index.xml"))
+        )
+        respx.get(f"{BASE_URL}/sitemap1.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap1.xml"))
+        )
+        respx.get(f"{BASE_URL}/sitemap2.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap2.xml"))
+        )
+        matching_route = respx.get(
+            f"{BASE_URL}/job/IOS-2026-3001/Alternance-Assistant-Marketing-Digital"
+        ).mock(return_value=httpx.Response(200, text=_read_fixture("job_page_apprenticeship.html")))
+        jobs = source.fetch()
+
+    assert matching_route.call_count == 1
+    assert len(jobs) == 1
+    assert jobs[0].external_id == "IOS-2026-3001"
+
+
+def test_english_locale_slugs_are_recognized_by_the_default_vocabulary(
+    mock_client: httpx.Client,
+) -> None:
+    # The real M10 bug: Geodis and Manitou's sitemaps use English-locale
+    # slugs ("Intern", "Graduate", "Trainee") that the old search_terms-only
+    # filter never matched. DEFAULT_SLUG_VOCABULARY must catch these.
+    source = _make_source(mock_client)
+    for slug, expected in [
+        ("Supply-Chain-Intern-2026", True),
+        ("Graduate-Program-Finance", True),
+        ("Engineering-Trainee-Program", True),
+        ("Apprentice-Electrician", True),
+        ("Senior-Network-Engineer", False),
+        ("Business-Analyst-Permanent", False),
+    ]:
+        url = f"{BASE_URL}/job/1234/{slug}"
+        matched = any(term in url.lower() for term in source.slug_vocabulary)
+        assert matched is expected, f"{slug!r} expected match={expected}, got {matched}"
+
+
+def test_custom_slug_vocabulary_overrides_the_default(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client, slug_vocabulary=["ausbildung"])
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap_index.xml"))
+        )
+        respx.get(f"{BASE_URL}/sitemap1.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap1.xml"))
+        )
+        # No sitemap2.xml route registered on purpose: with the override,
+        # NEITHER real fixture slug matches "ausbildung", so this must fall
+        # through to sampling (which fetches from the full candidate set,
+        # including sitemap2's URLs) rather than matching via vocabulary.
+        respx.get(f"{BASE_URL}/sitemap2.xml").mock(
+            return_value=httpx.Response(200, text=_read_fixture("sitemap2.xml"))
+        )
+        for path in [
+            "/job/R0313776/Ingenieur-Plateforme-DevOps",
+            "/job/IOS-2026-3001/Alternance-Assistant-Marketing-Digital",
+            "/job/R0000000/expired",
+            "/job/R0999999/malformed",
+        ]:
+            respx.get(f"{BASE_URL}{path}").mock(
+                return_value=httpx.Response(200, text=_read_fixture("job_page.html"))
+            )
+        jobs = source.fetch()
+
+    # Sampling (all 4, since 4 <= DEFAULT_SAMPLE_SIZE) rather than the one
+    # real "alternance" slug -- proves the override genuinely replaced the
+    # default vocabulary rather than being merged with it.
+    assert len(jobs) == 4
+
+
+# --- evenly-spread sampling (M11 A2) ----------------------------------------
+
+
+def test_evenly_spread_sample_returns_everything_when_under_the_sample_size() -> None:
+    urls = ["a", "b", "c"]
+    assert _evenly_spread_sample(urls, 40) == urls
+
+
+def test_evenly_spread_sample_picks_across_the_whole_list_not_just_the_front() -> None:
+    urls = [f"url{i}" for i in range(200)]
+    sample = _evenly_spread_sample(urls, 20)
+
+    assert len(sample) == 20
+    assert len(set(sample)) == 20  # no duplicates
+    indices = sorted(urls.index(u) for u in sample)
+    # Spread across the whole 0-199 range, not clustered in the first 20.
+    assert indices[0] < 10
+    assert indices[-1] > 180
+
+
+def test_default_sample_size_is_a_sane_positive_bound() -> None:
+    assert DEFAULT_SAMPLE_SIZE > 0
+
+
+def test_no_search_terms_and_no_vocabulary_match_samples_evenly_not_head_biased(
+    mock_client: httpx.Client,
+) -> None:
+    # A candidate set bigger than the sample size, where nothing matches
+    # search_terms or the vocabulary -- the ones actually fetched must be
+    # spread across the set, not just the first `sample_size`.
+    source = _make_source(mock_client, sample_size=5)
+    urls = [f"{BASE_URL}/job/{i}/role-{i}" for i in range(50)]
+    sitemap = "<urlset>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(INDEX_URL).mock(return_value=httpx.Response(200, text=sitemap))
+        for u in urls:
+            respx.get(u).mock(return_value=httpx.Response(200, text="<html></html>"))
+        source.fetch()
+
+        fetched_urls = {str(c.request.url) for c in respx.mock.calls if "/job/" in str(c.request.url)}
+
+    assert len(fetched_urls) == 5
+    fetched_indices = sorted(int(u.split("/job/")[1].split("/")[0]) for u in fetched_urls)
+    assert fetched_indices[0] < 10
+    assert fetched_indices[-1] > 39  # not clustered at the front of the 0-49 range
 
 
 # --- job_path_markers (M9d) -------------------------------------------
