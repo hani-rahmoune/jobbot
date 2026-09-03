@@ -470,3 +470,49 @@
   # Chicago-based VIE reads "Chicago, FR") -- a genuine source convention,
   # relayed as-is rather than corrected, same principle as CLAUDE.md's
   # source-dates rule.
+
+# M13 Part C: rendered.py investigated live against 5 candidates, in the
+# given priority order. None added -- every one is genuinely blocked, not
+# just untried, and none violate the "no captcha-solving, no Cloudflare
+# evasion" rule; they're recorded here so a future session doesn't re-spend
+# this same investigation:
+#
+# - TotalEnergies (jobs.totalenergies.com): its OWN robots.txt disallows
+#   every locale-prefixed path (/en_US/*, /fr_FR/*) and even the bare root
+#   "/" -- confirmed directly with Python's stdlib robotparser, not just
+#   this project's RobotsCache wrapper. The only nominally-Allowed paths
+#   (/careers, /careers/SearchJobs) immediately 302 to a Disallowed
+#   locale-prefixed one. The 984 slug-matched candidate URLs identified
+#   earlier are real, but every one of them lives under a Disallowed path.
+#   A genuine robots.txt wall, not a rendering problem.
+# - Nexans (career.nexans.com): confirmed RMK, robots.txt allows both
+#   /viewalljobs/ and individual /job/ pages. A REAL browser (not just
+#   static HTML) still shows literal unresolved `${translations[locale]...}`
+#   placeholders and a generic "Job Details" title on every page checked,
+#   even after networkidle, an extra 3s settle, and dismissing the cookie
+#   banner. Genuinely broken client-side rendering on this tenant, not a
+#   missing selector.
+# - Capgemini (jobs.capgemini.com): robots.txt allows /viewalljobs/, and
+#   the rendered page DOES report "Résultats 1 à 24 sur 24" -- real results
+#   exist -- but no corresponding result rows ever materialize in the DOM
+#   (0 job links found by any selector tried), even after dismissing the
+#   cookie banner. Whatever renders the actual rows didn't fire in this
+#   session's checks; not resolved.
+# - Saint-Gobain (joinus.saint-gobain.com): returns a Cloudflare challenge
+#   page ("Just a moment...", HTTP 403) to a plain page load. Excluded per
+#   the explicit rule against defeating Cloudflare -- not attempted further.
+# - Kering: NOT actually a rendered.py candidate. Its careers page links to
+#   kering.wd3.myworkdayjobs.com, which looked like a Workday tenant, but
+#   the real Workday CXS API (kering.wd3.myworkdayjobs.com/wday/cxs/kering/
+#   Kering/jobs) returns total:0 -- that link is some other portal (an
+#   employee/internal one, not the public board). The REAL public postings
+#   (e.g. careers.kering.com/careers/R170165) are on a DIFFERENT, previously
+#   unseen vendor: Eightfold AI (confirmed via response headers -- X-EF-*,
+#   a CSP referencing eightfold-gov.ai). robots.txt allows /careers. Direct
+#   navigation to a job URL in a real browser renders a generic "Jobs" H1
+#   rather than the real title, suggesting Eightfold's own client-side
+#   routing expects in-app navigation rather than a fresh page load -- not
+#   resolved this session. Worth a dedicated future investigation (a new
+#   vendor, not folded into this rendered.py sweep): confirm whether
+#   Eightfold has its own JSON-LD/API surface before reaching for
+#   rendered.py's selector fallback again.
