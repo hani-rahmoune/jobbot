@@ -217,6 +217,29 @@
   tags: [defense, talentsoft]
   # 382 total; "alternance" 5, "stage" 4
 
+# M11 B2: re-tested after M10 wrongly rejected these for "no JobPosting
+# JSON-LD in the sample" -- both are Talentsoft tenants, not sitemap_jsonld
+# candidates at all. Sodebo's is on the standard *.talent-soft.com domain;
+# MAIF's is a custom vanity domain (recrutement.maif.fr) that Talentsoft
+# supports for enterprise tenants -- same /job/list-of-all-jobs.aspx
+# endpoint, same ts-offer-card/ts-offer-list-item markup, confirmed live.
+# The existing talentsoft adapter needed no changes.
+
+- name: Sodebo
+  ats: talentsoft
+  identifier: https://sodebo-career.talent-soft.com
+  tier: warm
+  tags: [food, talentsoft]
+  # 28 total, confirmed live; robots.txt carries no rules (all allowed)
+
+- name: MAIF
+  ats: talentsoft
+  identifier: https://recrutement.maif.fr
+  tier: warm
+  tags: [insurance, talentsoft]
+  # 37 total, confirmed live (custom domain, not *.talent-soft.com);
+  # robots.txt carries no rules (all allowed)
+
 # M9b: sitemap_jsonld -- Phenom People's search widget stays rejected
 # (session/CSRF-bound), but both employers' job pages are reachable this
 # way. Identifier is the sitemap index URL from each site's own robots.txt.
@@ -288,3 +311,17 @@
 # pages checked. It doesn't fit this adapter; a bespoke adapter would be
 # needed, out of scope for M11. Recorded here so no future session
 # re-guesses workatgeodis.com for this company.
+
+# M11 B2: re-tested against the M10 rejection list with a wider net --
+# Scaleway's own careers page links straight to a standard Lever board,
+# not sitemap_jsonld at all. Confirmed live via the real LeverSource:
+# 38 postings, including a real internship ("Approvisionneur - Stage",
+# Paris). jobs.lever.co's robots.txt allows crawling (the only
+# Content-Signal opt-out is ai-train, which doesn't apply to relaying
+# postings to Discord).
+
+- name: Scaleway
+  ats: lever
+  identifier: scaleway
+  tier: warm
+  tags: [cloud, tech, lever]
