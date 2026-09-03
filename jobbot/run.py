@@ -55,6 +55,7 @@ from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
 from jobbot.sources.jibe import JibeSource
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
+from jobbot.sources.sitemap_jsonld import SitemapJsonLdSource
 from jobbot.sources.smartrecruiters import SmartRecruitersSource
 from jobbot.sources.talentsoft import TalentsoftSource
 from jobbot.sources.workday import WorkdaySource
@@ -64,8 +65,11 @@ from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 # settings.search_terms is threaded through to exactly these, by identity,
 # not by name string -- every other adapter's constructor has no such
 # concept and must not be passed one. See each module's docstring for its
-# own confirmed server-side search parameter and real narrowing numbers.
-_SEARCH_CAPABLE_ADAPTERS = (WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource)
+# own confirmed server-side search parameter (or, for sitemap_jsonld, its
+# client-side sitemap-slug pre-filter) and real narrowing numbers.
+_SEARCH_CAPABLE_ADAPTERS = (
+    WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource, SitemapJsonLdSource,
+)
 
 logger = logging.getLogger(__name__)
 

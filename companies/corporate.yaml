@@ -20,6 +20,21 @@
 # 2000+ postings per employer and are correspondingly expensive to poll
 # often; each adapter's own max_postings/page caps apply regardless of tier.
 #
+# M9b re-swept the two working vendors (Workday, SmartRecruiters) against a
+# much longer list of large French employers, and re-investigated all four
+# vendors M9 had rejected, trying harder per CLAUDE.md's Part D playbook
+# before concluding again. One more rejected vendor turned out to have a
+# genuinely usable path after all: Phenom People's own search widget
+# (Orange, Thales) is still confirmed session/CSRF-bound and unusable, but
+# both employers' individual job pages -- discoverable through a real,
+# robots.txt-listed sitemap -- carry complete, valid schema.org JobPosting
+# JSON-LD. That's a different shape of problem than jsonld.py solves (many
+# discovered single-posting pages, not one page with many postings
+# embedded), so it's a new adapter, not a reuse of jsonld.py --
+# see jobbot/sources/sitemap_jsonld.py's module docstring. SAP
+# SuccessFactors, iCIMS classic, and Oleeo were all re-confirmed rejected,
+# each for a more precise reason than before -- see the M9b report.
+#
 # Identifier formats (see each adapter module's own docstring for the full
 # reasoning):
 #   workday          "{tenant}.wd{N}.{site}"
@@ -27,6 +42,8 @@
 #   jibe             the employer's Jibe domain, optionally "|{country}"
 #                    for a board that spans more than one country
 #   talentsoft       the employer's own Talentsoft subdomain (https URL)
+#   sitemap_jsonld   the employer's sitemap index URL (from robots.txt's
+#                    own "Sitemap:" line)
 
 - name: Renault Group
   ats: workday
@@ -121,3 +138,104 @@
   tier: warm
   tags: [banking, talentsoft]
   # 193 total; "alternance" 2, "stage" 1, "apprentissage" 2
+
+# M9b: more Workday tenants, found by checking each named employer's real
+# careers page for a myworkdayjobs.com URL and verifying live -- see the
+# M9b report's table for every name checked, including the ones that
+# turned out NOT to be on Workday. "stage" is unusually noisy for the two
+# pharma/mining employers here (Pierre Fabre, Imerys) -- Workday's fuzzy
+# search matches "stage" against ordinary industry vocabulary ("clinical
+# stage", "multi-stage process"), not just the French internship word --
+# kept anyway since "alternance" stays a clean, low-noise signal for both.
+
+- name: Ipsen
+  ats: workday
+  identifier: ipsen.wd103.Ipsen_Careers
+  tier: warm
+  tags: [pharma, workday]
+  # 264 total; "alternance" 12, "stage" 80
+
+- name: Pierre Fabre
+  ats: workday
+  identifier: pierrefabre.wd3.External_Career_Site
+  tier: warm
+  tags: [pharma, workday]
+  # 210 total; "alternance" 7, "stage" 132 (noisy, see above)
+
+- name: Pernod Ricard
+  ats: workday
+  identifier: pernodricard.wd3.pernod-ricard
+  tier: warm
+  tags: [consumer, cac40, workday]
+  # 263 total; "alternance" 35, "stage" 45
+
+- name: Imerys
+  ats: workday
+  identifier: imerys.wd3.IMERYS-Careers
+  tier: warm
+  tags: [manufacturing, workday]
+  # 118 total; "alternance" 12, "stage" 118 (noisy, see above)
+
+- name: CNP Assurances
+  ats: workday
+  identifier: lmg.wd3.CNPPS
+  tier: warm
+  tags: [insurance, workday]
+  # 36 total; "alternance" 3, "stage" 4
+
+# M9b: more SmartRecruiters companies, same verification method as above.
+
+- name: Sopra Steria
+  ats: smartrecruiters
+  identifier: SopraSteria1
+  tier: warm
+  tags: [tech, smartrecruiters]
+  # 1971 total; "alternance" 9, "stage" 69
+
+- name: Somfy
+  ats: smartrecruiters
+  identifier: somfygroup
+  tier: warm
+  tags: [manufacturing, smartrecruiters]
+  # 61 total (mostly international); "alternance" 2, "stage" 3 -- real
+  # France postings confirmed present despite the small France share
+
+- name: Lacroix
+  ats: smartrecruiters
+  identifier: LACROIX1
+  tier: warm
+  tags: [manufacturing, smartrecruiters]
+  # 52 total; "alternance" 1, "stage" 0
+
+# M9b: more Cegid Talentsoft tenants, found the same way (a company's own
+# careers page linking to its "-recrute.talent-soft.com" subdomain).
+
+- name: Naval Group
+  ats: talentsoft
+  identifier: https://dcns-recrute.talent-soft.com
+  tier: warm
+  tags: [defense, talentsoft]
+  # 382 total; "alternance" 5, "stage" 4
+
+# M9b: sitemap_jsonld -- Phenom People's search widget stays rejected
+# (session/CSRF-bound), but both employers' job pages are reachable this
+# way. Identifier is the sitemap index URL from each site's own robots.txt.
+# Totals below are total discoverable job URLs across every per-locale
+# sub-sitemap, not postings actually fetched each poll -- search_terms
+# narrows that down to a bounded double-digit set per employer (see
+# jobbot/sources/sitemap_jsonld.py's module docstring and MAX_JOB_PAGES).
+
+- name: Thales
+  ats: sitemap_jsonld
+  identifier: https://careers.thalesgroup.com/fr/fr/sitemap_index.xml
+  tier: warm
+  tags: [aerospace, defense, cac40, sitemap_jsonld]
+  # 2635 total job URLs across 6 sub-sitemaps; "alternance" 33, "stage" 12,
+  # "internship" 12 (URL-slug matches, before search_terms dedup/fetch)
+
+- name: Orange
+  ats: sitemap_jsonld
+  identifier: https://orange.jobs/fr/fr/sitemap_index.xml
+  tier: warm
+  tags: [telecom, cac40, sitemap_jsonld]
+  # 657 total job URLs across 2 sub-sitemaps; "alternance" 5, "stage" 6

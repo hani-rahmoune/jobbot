@@ -30,7 +30,10 @@ from pydantic import BaseModel, Field, ValidationError
 # one specifically). An identifier not in this set is a config typo or an
 # ATS we haven't built, either way it's an error, not a silent skip.
 KNOWN_ATS = frozenset(
-    {"greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe", "talentsoft"}
+    {
+        "greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe",
+        "talentsoft", "sitemap_jsonld",
+    }
 )
 
 
