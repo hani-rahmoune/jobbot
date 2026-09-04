@@ -314,6 +314,49 @@
   # search_terms narrowed to 18 real postings fetched, confirmed live
   # (e.g. "Stage Datacom & Security Specialist", real "stage" content)
 
+# M15 Part B: TotalEnergies was ruled out in M11/M13 as "genuinely walled
+# off by robots.txt" -- that verdict was wrong, a longest-match parser bug
+# fixed in M14 Part A prep (jobbot/sources/robots.py). Re-checked live with
+# the corrected parser: jobs.totalenergies.com's real robots.txt is the
+# textbook "Disallow: / then selective Allow: subpaths" shape the bug
+# existed to fix -- `Allow: /$` (bare root), `Allow: /careers`, and
+# `Allow: /*/careers` (the wildcard rule covering every locale-prefixed
+# JobDetail page) all now correctly win over the trailing `Disallow: /`.
+# Confirmed Avature (avature.portal.* meta tags, avacdn.net assets, the
+# SearchJobs/JobDetail URL shape) -- not SuccessFactors, Eightfold,
+# Talentsoft, Greenhouse, Lever, Ashby, SmartRecruiters, or Workday, so the
+# rest of Part A3's cascade was not re-run against it. No JSON search
+# endpoint: the search page's own free-text/dropdown search does not
+# server-side filter at all (confirmed live -- a plain GET with any
+# `?query=` value, and a real Enter-key submission through a rendered page,
+# both return the identical unfiltered "20 most recent postings" list); the
+# only real network calls Playwright ever captures on that page are cookie-
+# consent and dropdown-autocomplete endpoints, nothing job-related. Each
+# JobDetail page carries only its title server-side (an og:title meta tag);
+# the real body (location, contract type, description) exists only once
+# rendered. rendered.py's sitemap mode (M15 Part B) was built for exactly
+# this shape: discover candidate URLs via the existing sitemap pipeline
+# (search_terms + M14 Part C location narrowing), then render each one.
+#
+# Also found and fixed live: TotalEnergies' sitemap lists every posting
+# once PER LOCALE MIRROR (en_US/fr_FR/es_ES/de_DE/nl_NL/pt_BR -- six
+# differently-prefixed URLs, the same numeric requisition ID each time),
+# which silently inflated every candidate count 6x before a trailing-
+# numeric-ID dedup was added to the shared sitemap_discovery.py (benefits
+# sitemap_jsonld.py and successfactors.py too, as a no-op for any employer
+# that doesn't share this exact locale-fanout shape).
+- name: TotalEnergies
+  ats: rendered
+  identifier: "sitemap:https://jobs.totalenergies.com/careers/sitemap_index.xml|h2|main"
+  tier: warm
+  tags: [energy, cac40, rendered]
+  # Live-verified, location-narrowed: 20 unique real French candidates (down
+  # from 90 unique candidates -- 984 raw slug matches before the M15 dedup
+  # fix -- with search_terms alone), all 20 fetched within the 40-page cap,
+  # 63.0s / 3.15s per page. Real content confirmed: "ALTERNANCE - Charge de
+  # Recrutement", "Stage - Optimisation des couts de prod", correct
+  # locations (city/department/region/country) and contract types.
+
 # M11 B1: added after Part A's slug-vocabulary fallback fix. M10 rejected
 # this employer for "zero slug matches" because its sitemap uses
 # WordPress-plugin URLs with no French search_terms in the slug at all;

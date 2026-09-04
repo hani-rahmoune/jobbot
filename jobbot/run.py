@@ -93,7 +93,7 @@ from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
 from jobbot.sources.lever import LeverSource  # noqa: F401
 from jobbot.sources.rendered import (
     MAX_RENDERED_SOURCES_PER_POLL,
-    RenderedSource,  # noqa: F401
+    RenderedSource,
 )
 from jobbot.sources.sitemap_jsonld import SitemapJsonLdSource
 from jobbot.sources.smartrecruiters import SmartRecruitersSource
@@ -108,9 +108,16 @@ from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 # concept and must not be passed one. See each module's docstring for its
 # own confirmed server-side search parameter (or, for sitemap_jsonld, its
 # client-side sitemap-slug pre-filter) and real narrowing numbers.
+#
+# M15 Part B: RenderedSource joins this tuple too -- ONLY its sitemap mode
+# uses search_terms (the exact same client-side slug pre-filter
+# sitemap_jsonld uses, via the same shared SitemapDiscovery); single-page
+# mode simply never receives a meaningful value to filter with, since its
+# identifier has no candidate URL list to narrow at all, so the kwarg is
+# harmless there.
 _SEARCH_CAPABLE_ADAPTERS = (
     WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource, SitemapJsonLdSource,
-    SuccessFactorsSource, EightfoldSource,
+    SuccessFactorsSource, EightfoldSource, RenderedSource,
 )
 
 # M14 Part C: adapter classes whose constructor also accepts a `locations`
@@ -121,7 +128,12 @@ _SEARCH_CAPABLE_ADAPTERS = (
 # separate, narrower tuple from _SEARCH_CAPABLE_ADAPTERS above -- most
 # search-capable adapters narrow server-side via a query parameter and have
 # no slug to match a location against.
-_LOCATION_AWARE_ADAPTERS = (SitemapJsonLdSource,)
+#
+# M15 Part B: RenderedSource joins this tuple too, for its sitemap mode --
+# a real browser page load costs roughly two orders of magnitude more than
+# an httpx GET, so narrowing the candidate set before ever launching the
+# browser matters even more here than it did for sitemap_jsonld.
+_LOCATION_AWARE_ADAPTERS = (SitemapJsonLdSource, RenderedSource)
 
 logger = logging.getLogger(__name__)
 

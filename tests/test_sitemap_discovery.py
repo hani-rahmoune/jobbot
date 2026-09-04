@@ -18,6 +18,7 @@ from jobbot.sources.base import SourceError, SourceNotFoundError
 from jobbot.sources.sitemap_discovery import (
     DEFAULT_JOB_PATH_MARKERS,
     SitemapDiscovery,
+    _dedupe_by_trailing_numeric_id,
     evenly_spread_sample,
     extract_locs,
     looks_like_a_job_url,
@@ -66,6 +67,80 @@ def test_a_blog_url_is_excluded_even_when_it_also_matches_a_job_marker() -> None
 def test_the_deny_list_is_overridable_like_the_allow_list() -> None:
     url = f"{BASE_URL}/blogs/job/1"
     assert looks_like_a_job_url(url, ["/job/"], non_job_path_markers=[]) is True
+
+
+# --- _dedupe_by_trailing_numeric_id (M15 Part B) -----------------------
+
+
+def test_dedupe_keeps_the_first_occurrence_of_a_repeated_trailing_id() -> None:
+    urls = [
+        f"{BASE_URL}/en_US/careers/JobDetail/Some-Role/77566",
+        f"{BASE_URL}/fr_FR/careers/JobDetail/Some-Role/77566",
+        f"{BASE_URL}/de_DE/careers/JobDetail/Some-Role/77566",
+    ]
+    assert _dedupe_by_trailing_numeric_id(urls) == [urls[0]]
+
+
+def test_dedupe_keeps_distinct_ids() -> None:
+    urls = [
+        f"{BASE_URL}/en_US/careers/JobDetail/Role-A/1001",
+        f"{BASE_URL}/en_US/careers/JobDetail/Role-B/1002",
+    ]
+    assert _dedupe_by_trailing_numeric_id(urls) == urls
+
+
+def test_dedupe_never_touches_a_url_with_no_trailing_numeric_id() -> None:
+    # Thales' own ID shape: the numeric-looking segment comes BEFORE the
+    # title, not at the very end, so it must never be treated as a
+    # deduplication key at all.
+    urls = [
+        f"{BASE_URL}/job/R0313776/Ingenieur-Plateforme-DevOps",
+        f"{BASE_URL}/job/R0313776/Ingenieur-Plateforme-DevOps",  # a literal exact repeat
+    ]
+    assert _dedupe_by_trailing_numeric_id(urls) == urls  # both kept -- neither ends in digits
+
+
+def test_discover_job_urls_dedupes_the_same_posting_across_locale_mirrors(
+    mock_client: httpx.Client,
+) -> None:
+    # The exact TotalEnergies shape: the same requisition ID listed once per
+    # locale-prefixed sub-sitemap.
+    discovery = _make_discovery(mock_client, search_terms=["alternance"])
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<sitemapindex>"
+                    f"<sitemap><loc>{BASE_URL}/en_US/sitemap.xml</loc></sitemap>"
+                    f"<sitemap><loc>{BASE_URL}/fr_FR/sitemap.xml</loc></sitemap>"
+                    "</sitemapindex>"
+                ),
+            )
+        )
+        respx.get(f"{BASE_URL}/en_US/sitemap.xml").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/en_US/careers/JobDetail/Alternance-X/77566</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        respx.get(f"{BASE_URL}/fr_FR/sitemap.xml").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/fr_FR/careers/JobDetail/Alternance-X/77566</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert urls == [f"{BASE_URL}/en_US/careers/JobDetail/Alternance-X/77566"]
 
 
 # --- evenly_spread_sample ----------------------------------------------------

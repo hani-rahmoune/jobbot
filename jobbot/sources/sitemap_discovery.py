@@ -141,6 +141,43 @@ def looks_like_a_job_url(
     )
 
 
+# M15 Part B: matches a URL's TRAILING path segment when it's purely
+# numeric (3+ digits) -- the canonical "requisition ID" position for
+# ".../JobDetail/{title-slug}/{id}"-shaped URLs. Anchored to end-of-string,
+# unlike _NUMERIC_PATH_SEGMENT_RE above (which matches anywhere, for the
+# "is this a job URL at all" question) -- an ID elsewhere in the path
+# (Thales' ".../job/R0313776/Ingenieur-..." has its ID BEFORE the title,
+# and prefixed with a letter, so it doesn't match here at all) is a
+# different URL shape entirely and must not be deduplicated by this.
+_TRAILING_NUMERIC_ID_RE = re.compile(r"/(\d{3,})/?$")
+
+
+def _dedupe_by_trailing_numeric_id(urls: list[str]) -> list[str]:
+    """Keeps the first occurrence (document order) of each distinct trailing
+    numeric ID, dropping the rest. Confirmed live necessary for
+    TotalEnergies: its sitemap lists every posting once PER LOCALE MIRROR
+    (en_US, fr_FR, es_ES, de_DE, nl_NL, pt_BR -- six differently-prefixed
+    URLs, the same numeric requisition ID each time), which would otherwise
+    burn most of a page cap re-rendering/re-fetching the exact same posting
+    under a different locale prefix. A URL with no trailing numeric ID at
+    all (some employers' slugs carry none) is never deduplicated against
+    anything -- always kept.
+    """
+    seen_ids: set[str] = set()
+    deduped: list[str] = []
+    for url in urls:
+        match = _TRAILING_NUMERIC_ID_RE.search(url)
+        if match is None:
+            deduped.append(url)
+            continue
+        job_id = match.group(1)
+        if job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        deduped.append(url)
+    return deduped
+
+
 def evenly_spread_sample(urls: list[str], sample_size: int) -> list[str]:
     """A stride-based sample across the FULL list, not "the first N" --
     picking from throughout the candidate set is what actually fixes a
@@ -315,6 +352,11 @@ class SitemapDiscovery:
             for u in job_candidate_urls
             if looks_like_a_job_url(u, self.job_path_markers, self.non_job_path_markers)
         ]
+        # M15 Part B: deduplicated BEFORE narrowing (not just before the page
+        # cap) so every layer below -- search_terms, slug vocabulary,
+        # location, and the sample fallback -- counts and logs the real
+        # number of distinct postings, not one inflated by locale mirrors.
+        job_urls = _dedupe_by_trailing_numeric_id(job_urls)
 
         urls_to_fetch, path_used = self._select_urls_to_fetch(job_urls, sitemap_url)
         logger.info(

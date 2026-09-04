@@ -10,7 +10,7 @@ import respx
 from conftest import TEST_USER_AGENT
 
 from jobbot.sources.base import SourceError
-from jobbot.sources.rendered import RenderedSource
+from jobbot.sources.rendered import RenderedSource, _split_labeled_fields
 
 URL = "https://acme.example/careers"
 
@@ -54,6 +54,30 @@ class _FakePage:
     def query_selector_all(self, selector: str) -> list[_FakeElement]:
         self.selector_used = selector
         return self._elements
+
+
+class _FakeMultiPage:
+    """M15 Part B: sitemap mode navigates ONE page object to MANY distinct
+    URLs in a single fetch_raw() call, unlike every other fake page in this
+    file (one URL per test). `pages` maps url -> {selector: text}, or None
+    to simulate a page whose selectors match nothing (a load that succeeded
+    but landed on a differently-shaped page)."""
+
+    def __init__(self, pages: dict[str, dict[str, str] | None]) -> None:
+        self._pages = pages
+        self._current_url: str | None = None
+        self.goto_calls: list[str] = []
+
+    def goto(self, url: str, wait_until: str | None = None, timeout: int | None = None) -> None:
+        self.goto_calls.append(url)
+        self._current_url = url
+
+    def query_selector(self, selector: str) -> _FakeElement | None:
+        entry = self._pages.get(self._current_url)
+        if entry is None:
+            return None
+        text = entry.get(selector)
+        return _FakeElement(text) if text is not None else None
 
 
 class _RaisingPage(_FakePage):
@@ -384,3 +408,268 @@ def test_real_playwright_renders_a_real_page(mock_client: httpx.Client) -> None:
         jobs = source.fetch()
 
     assert jobs == []
+
+
+# --- sitemap mode (M15 Part B) -----------------------------------------
+
+SITEMAP_URL = "https://jobs.example.com/careers/sitemap_index.xml"
+SM_IDENTIFIER = f"sitemap:{SITEMAP_URL}|h2|main"
+
+
+def _mock_te_robots_allowed(respx_mock: respx.MockRouter) -> None:
+    respx_mock.get("https://jobs.example.com/robots.txt").mock(return_value=httpx.Response(404))
+
+
+def _mock_sitemap(respx_mock: respx.MockRouter, job_urls: list[str]) -> None:
+    body = "<urlset>" + "".join(f"<url><loc>{u}</loc></url>" for u in job_urls) + "</urlset>"
+    respx_mock.get(SITEMAP_URL).mock(return_value=httpx.Response(200, text=body))
+
+
+REAL_CONTENT = """Country
+France
+Area
+69 - Rhône
+
+Workplace location
+SOLAIZE-CHEMIN DU CANAL(FRA)
+Domain
+Research Innovation&Developpt
+Type of contract
+Apprenticeship
+Contract duration
+12 Months
+Experience
+Less than 3 years
+Activities
+
+Une alternance de 12 mois au Laboratoire Qualité de l'Air, à partir de
+septembre 2026, pour unétudiant en école d'ingénieurs.
+
+Candidate Profile
+
+Cette offre s'adresse aux étudiants de niveau Bac+5.
+
+Additional Information
+TotalEnergies values diversity, promotes individual growth and offers
+equal opportunity careers.
+Apply
+"""
+
+
+@pytest.mark.parametrize(
+    "bad_identifier",
+    [
+        "sitemap:",
+        "sitemap:https://jobs.example.com/sitemap.xml",
+        "sitemap:https://jobs.example.com/sitemap.xml|h2",
+        "sitemap:https://jobs.example.com/sitemap.xml||main",
+        "sitemap:not-a-url|h2|main",
+        "sitemap:http://jobs.example.com/sitemap.xml|h2|main",  # not https
+    ],
+)
+def test_sitemap_mode_invalid_identifier_raises_value_error(
+    mock_client: httpx.Client, bad_identifier: str
+) -> None:
+    with pytest.raises(ValueError):
+        RenderedSource(bad_identifier, "Acme", mock_client, user_agent=TEST_USER_AGENT)
+
+
+def test_sitemap_mode_identifier_parses_url_and_both_selectors(mock_client: httpx.Client) -> None:
+    source = RenderedSource(SM_IDENTIFIER, "Acme", mock_client, user_agent=TEST_USER_AGENT)
+    assert source._sitemap_mode is True
+    assert source._sitemap_url == SITEMAP_URL
+    assert source._title_selector == "h2"
+    assert source._content_selector == "main"
+
+
+def test_single_page_mode_identifier_is_unaffected_by_sitemap_mode(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client)
+    assert source._sitemap_mode is False
+
+
+def test_sitemap_mode_robots_disallow_raises_source_error_before_any_render(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = RenderedSource(SM_IDENTIFIER, "Acme", mock_client, user_agent=TEST_USER_AGENT)
+    browser = _install_fake_playwright(monkeypatch, _FakeMultiPage({}))
+    with respx.mock:
+        respx.get("https://jobs.example.com/robots.txt").mock(
+            return_value=httpx.Response(200, text="User-agent: *\nDisallow: /")
+        )
+        with pytest.raises(SourceError):
+            source.fetch()
+
+    assert browser.new_page_user_agent is None  # never launched
+
+
+def test_sitemap_mode_renders_each_selected_url_and_parses_real_content(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job_url = "https://jobs.example.com/en_US/careers/JobDetail/ALTERNANCE-X/34295"
+    source = RenderedSource(
+        SM_IDENTIFIER, "TotalEnergies", mock_client, user_agent=TEST_USER_AGENT,
+        search_terms=["alternance"],
+    )
+    fake_page = _FakeMultiPage({job_url: {"h2": "ALTERNANCE - X", "main": REAL_CONTENT}})
+    browser = _install_fake_playwright(monkeypatch, fake_page)
+
+    with respx.mock:
+        _mock_te_robots_allowed(respx.mock)
+        _mock_sitemap(respx.mock, [job_url])
+        jobs = source.fetch()
+
+    assert fake_page.goto_calls == [job_url]
+    assert browser.closed is True
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.title == "ALTERNANCE - X"
+    assert str(job.url) == job_url
+    assert job.location == "SOLAIZE-CHEMIN DU CANAL(FRA), 69 - Rhône, France"
+    assert job.contract_type == "apprenticeship"
+    assert "Laboratoire Qualité de l'Air" in job.description
+    assert "Additional Information" not in job.description
+    assert "TotalEnergies values diversity" not in job.description
+
+
+def test_sitemap_mode_a_page_matching_neither_selector_is_skipped_not_crashed(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good_url = "https://jobs.example.com/en_US/careers/JobDetail/ALTERNANCE-X/34295"
+    bad_url = "https://jobs.example.com/en_US/careers/JobDetail/ALTERNANCE-Y/43501"
+    source = RenderedSource(
+        SM_IDENTIFIER, "TotalEnergies", mock_client, user_agent=TEST_USER_AGENT,
+        search_terms=["alternance"],
+    )
+    fake_page = _FakeMultiPage(
+        {
+            good_url: {"h2": "ALTERNANCE - X", "main": REAL_CONTENT},
+            bad_url: None,  # simulates an error page / different shape entirely
+        }
+    )
+    _install_fake_playwright(monkeypatch, fake_page)
+
+    with respx.mock:
+        _mock_te_robots_allowed(respx.mock)
+        _mock_sitemap(respx.mock, [good_url, bad_url])
+        jobs = source.fetch()
+
+    assert len(jobs) == 1
+    assert jobs[0].title == "ALTERNANCE - X"
+
+
+def test_sitemap_mode_a_playwright_error_on_one_page_is_skipped_not_fatal(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Unlike single-page mode (where a Playwright error IS the whole fetch
+    # failing), sitemap mode renders many individually-discovered pages --
+    # one page timing out is this mode's equivalent of sitemap_jsonld.py's
+    # own per-page SourceError catch (_fetch_job_posting): logged and
+    # skipped, not a reason to fail the whole batch. M8b: the resulting
+    # empty list is a valid, non-failing outcome.
+    job_url = "https://jobs.example.com/en_US/careers/JobDetail/ALTERNANCE-X/34295"
+    source = RenderedSource(
+        SM_IDENTIFIER, "TotalEnergies", mock_client, user_agent=TEST_USER_AGENT,
+        search_terms=["alternance"],
+    )
+    browser = _install_fake_playwright(
+        monkeypatch, _RaisingPage(_FakePlaywrightError("navigation timeout"))
+    )
+    with respx.mock:
+        _mock_te_robots_allowed(respx.mock)
+        _mock_sitemap(respx.mock, [job_url])
+        jobs = source.fetch()
+
+    assert jobs == []
+    assert browser.closed is True
+
+
+def test_sitemap_mode_zero_candidates_returns_empty_list_not_an_error(
+    mock_client: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = RenderedSource(
+        SM_IDENTIFIER, "TotalEnergies", mock_client, user_agent=TEST_USER_AGENT,
+        search_terms=["a-term-that-matches-nothing"], sample_size=0,
+    )
+    _install_fake_playwright(monkeypatch, _FakeMultiPage({}))
+    with respx.mock:
+        _mock_te_robots_allowed(respx.mock)
+        _mock_sitemap(respx.mock, [])
+        jobs = source.fetch()
+
+    assert jobs == []
+
+
+def test_sitemap_mode_locations_kwarg_reaches_the_shared_discovery_instance(
+    mock_client: httpx.Client,
+) -> None:
+    source = RenderedSource(
+        SM_IDENTIFIER, "TotalEnergies", mock_client, user_agent=TEST_USER_AGENT,
+        locations=["paris", "nantes"],
+    )
+    assert source._discovery.locations == ["paris", "nantes"]
+
+
+def test_sitemap_mode_default_page_cap_is_far_lower_than_sitemap_jsonld(
+    mock_client: httpx.Client,
+) -> None:
+    from jobbot.sources.rendered import DEFAULT_RENDERED_SITEMAP_PAGE_CAP
+    from jobbot.sources.sitemap_jsonld import DEFAULT_PAGE_CAP as SITEMAP_JSONLD_PAGE_CAP
+
+    assert 0 < DEFAULT_RENDERED_SITEMAP_PAGE_CAP < SITEMAP_JSONLD_PAGE_CAP
+
+
+# --- _split_labeled_fields (M15 Part B) --------------------------------
+
+
+def test_split_labeled_fields_extracts_the_real_metadata_header() -> None:
+    fields, _ = _split_labeled_fields(REAL_CONTENT)
+    assert fields == {
+        "Country": "France",
+        "Area": "69 - Rhône",
+        "Workplace location": "SOLAIZE-CHEMIN DU CANAL(FRA)",
+        "Domain": "Research Innovation&Developpt",
+        "Type of contract": "Apprenticeship",
+        "Contract duration": "12 Months",
+        "Experience": "Less than 3 years",
+    }
+
+
+def test_split_labeled_fields_description_excludes_the_activities_header_line() -> None:
+    _, description = _split_labeled_fields(REAL_CONTENT)
+    assert not description.startswith("Activities")
+    assert description.startswith("Une alternance")
+
+
+def test_split_labeled_fields_description_stops_before_additional_information() -> None:
+    _, description = _split_labeled_fields(REAL_CONTENT)
+    assert "Additional Information" not in description
+    assert "TotalEnergies values diversity" not in description
+    assert "Apply" not in description
+
+
+def test_split_labeled_fields_degrades_safely_on_unrecognized_content() -> None:
+    fields, description = _split_labeled_fields("Just some unrelated page text.\nMore text.")
+    assert fields == {}
+    assert description == "Just some unrelated page text.\nMore text."
+
+
+def test_split_labeled_fields_a_label_with_no_value_does_not_swallow_the_next_label() -> None:
+    # Live-confirmed bug on a real TotalEnergies posting missing "Area":
+    # without a fix, "Area" -> "Domain" (the NEXT label's own name, not a
+    # real value) leaked into the location. Avature genuinely leaves some
+    # label values blank.
+    text = (
+        "Country\nFrance\nArea\nWorkplace location\nPARIS(FRA)\n"
+        "Domain\nHR\nType of contract\nInternship\nActivities\n\nReal text."
+    )
+    fields, description = _split_labeled_fields(text)
+    assert fields == {
+        "Country": "France",
+        "Workplace location": "PARIS(FRA)",
+        "Domain": "HR",
+        "Type of contract": "Internship",
+    }
+    assert "Area" not in fields
+    assert description == "Real text."
