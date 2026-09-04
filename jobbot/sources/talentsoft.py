@@ -49,6 +49,41 @@ simpler `?Keywords=` GET parameter was confirmed live to produce the exact
 same server-side narrowing (CACIB: 313 -> 45 for "alternance"; LCL: 193 ->
 2) without any of that -- same optional, config-driven, one-query-per-term,
 dedup design as every other adapter's search_terms.
+
+M18 Part B: a THIRD template variant exists, confirmed live on Enedis
+(enedis-recrute.talent-soft.com) -- its listing page reports a real,
+nonzero "N offres" count but contains no `ts-offer-card`/`ts-offer-list-
+item` markup anywhere (a newer, more JS-driven rendering this project's
+scraper was never built to read, and Playwright confirmed no postings
+appear even after full JS execution or via any XHR/fetch call the page
+itself makes). Investigated for an alternative server-rendered route
+before reaching for a browser (CLAUDE.md's own preference, and this
+project's explicit rule against adding more rendered sources): Talentsoft
+ships its own platform-wide RSS export, `/handlers/offerRss.ashx`,
+confirmed live and unrelated to the broken listing template -- real,
+well-formed RSS with a genuine `<item>` per posting (title, link,
+category badges, a full HTML description, and a `pubDate`), the SAME
+`?Keywords=` search parameter as the classic page, and robots.txt-allowed
+on every tenant checked.
+
+Its one real limitation: the un-narrowed feed always returns exactly the
+20 most recent postings, with no page/offset parameter found that changes
+that (confirmed: `page=`, `Take=`, `PageIndex=` all silently ignored) --
+unlike the classic HTML template's own genuine pagination. A `?Keywords=`-
+narrowed query, however, is NOT capped at 20 the same way (confirmed live:
+"alternance" -> 11, "stage" -> 4 on Enedis, both under the ceiling with no
+sign of truncation) -- which matters in practice because search_terms is
+what every real poll actually uses (settings.yaml always configures the
+four real terms), so the plain full-board crawl's 20-item ceiling is a
+real but secondary limitation, logged whenever the RSS fallback's own
+result count comes in under the classic page's own reported total.
+
+Auto-detected, not configured: `_fetch_all_pages()` falls back to this
+route only when the classic template's own offer-card regex matches
+NOTHING despite the page reporting a nonzero total -- every tenant whose
+classic template already works (confirmed: CACIB, LCL, CEA, BRGM, and
+every other tenant in companies/*.yaml as of M18) is completely
+unaffected, since that condition never fires for them.
 """
 
 from __future__ import annotations
@@ -57,6 +92,9 @@ import html
 import logging
 import math
 import re
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -90,6 +128,26 @@ _LCID_FRENCH = 1036
 _LIST_PATH = "/job/list-of-all-jobs.aspx"
 
 _TOTAL_OFFERS_RE = re.compile(r"(\d+)\s*offre")
+
+# M18 Part B: the RSS-export fallback route -- see the module docstring's
+# own section for why this exists and its one real limitation (the
+# un-narrowed feed is capped at the 20 most recent postings).
+_RSS_PATH = "/handlers/offerRss.ashx"
+# Each <item>'s <link> carries the real offer id as a query parameter
+# (e.g. "...?idOffre=180448&..."), the RSS export's own equivalent of the
+# classic template's trailing "_{id}.aspx" -- a structural URL convention,
+# not a user search preference.
+_RSS_OFFER_ID_RE = re.compile(r"[?&]idOffre=(\d+)")
+# Every RSS title seen is prefixed with the offer's own internal reference
+# number ("2026-180448 - Electrotechnicien F/H") -- structural noise from
+# the export, not part of the real title.
+_RSS_REFERENCE_PREFIX_RE = re.compile(r"^\d{4}-\d+\s*-\s*")
+# The RSS description's own labeled "Ville : {city}" line is a more
+# reliable location signal than assuming a fixed category position (which
+# Talentsoft's admin-configurable "profile fields" don't guarantee stays
+# in the same order on every tenant) -- confirmed live on every Enedis
+# item checked.
+_RSS_VILLE_LABEL_RE = re.compile(r"(?im)^Ville\s*:\s*(.+)$")
 
 # Talentsoft ships two interchangeable listing templates, admin-selected per
 # tenant, not by URL parameter (confirmed live: Credit Agricole CIB defaults
@@ -185,6 +243,15 @@ class TalentsoftSource(JobSource):
         postings = _extract_offer_cards(first_page_html, self._base_url)
 
         total = _extract_total_offers(first_page_html)
+
+        # M18 Part B: a real, nonzero total with zero matched cards means
+        # this tenant's classic template isn't one _OFFER_CARD_RE
+        # recognizes at all (confirmed live: Enedis) -- not a genuinely
+        # empty board, which would report total == 0. Fall back to the
+        # platform's own RSS export rather than reporting nothing.
+        if not postings and total:
+            return self._fetch_rss_postings(keywords, total)
+
         if total is None:
             if postings:
                 logger.warning(
@@ -221,12 +288,46 @@ class TalentsoftSource(JobSource):
         return postings
 
     def _fetch_page_html(self, list_url: str, page: int, keywords: str) -> str:
-        """One page, with the same retry-once-on-5xx/timeout contract every
-        other adapter follows -- applied per page, since a mid-pagination
-        blip shouldn't discard pages already fetched."""
         params: dict[str, str | int] = {"LCID": _LCID_FRENCH, "page": page}
         if keywords:
             params["Keywords"] = keywords
+        return self._get_text(list_url, params, context=f"page {page}")
+
+    def _fetch_rss_postings(self, keywords: str, total: int) -> list[dict]:
+        """M18 Part B fallback -- see the module docstring's own section.
+        Only reached when the classic template's own offer-card regex
+        matched nothing despite a nonzero total (see _fetch_all_pages)."""
+        rss_url = f"{self._base_url}{_RSS_PATH}"
+        if not self._robots.allowed(rss_url):
+            raise SourceError(
+                f"talentsoft: robots.txt disallows fetching {rss_url} for {self.company_name}"
+            )
+
+        params: dict[str, str] = {}
+        if keywords:
+            params["Keywords"] = keywords
+        rss_text = self._get_text(rss_url, params, context="RSS fallback")
+        postings = _parse_rss_feed_text(rss_text)
+
+        # The un-narrowed feed is capped at the 20 most recent postings with
+        # no discovered pagination (see module docstring) -- a genuinely
+        # narrowed query isn't usually affected in practice, but report
+        # honestly whenever fewer postings came back than the classic
+        # template's own count says exist, regardless of why.
+        if len(postings) < total:
+            logger.warning(
+                "talentsoft: %s (%s) RSS fallback keywords %r returned %d of %d "
+                "reported offers -- this mode has no discovered pagination, "
+                "more postings may exist",
+                self.company_name, self.identifier, keywords, len(postings), total,
+            )
+
+        return postings
+
+    def _get_text(self, url: str, params: dict[str, str | int], context: str) -> str:
+        """One GET, with the same retry-once-on-5xx/timeout contract every
+        other adapter follows. `context` is only for log lines (e.g. "page 3"
+        or "RSS fallback"), to tell which caller a given warning came from."""
         headers = {"User-Agent": self.user_agent}
 
         response: httpx.Response | None = None
@@ -235,24 +336,24 @@ class TalentsoftSource(JobSource):
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = self.client.get(
-                    list_url, params=params, headers=headers, timeout=TIMEOUT_SECONDS
+                    url, params=params, headers=headers, timeout=TIMEOUT_SECONDS
                 )
             except httpx.TimeoutException as exc:
                 error = exc
                 logger.warning(
-                    "talentsoft: timeout fetching %s (page %d) for %s (attempt %d/%d)",
-                    list_url, page, self.company_name, attempt, MAX_ATTEMPTS,
+                    "talentsoft: timeout fetching %s (%s) for %s (attempt %d/%d)",
+                    url, context, self.company_name, attempt, MAX_ATTEMPTS,
                 )
                 continue
 
             if response.status_code >= 500:
                 error = SourceError(
-                    f"talentsoft: {self.company_name} ({list_url}) "
+                    f"talentsoft: {self.company_name} ({url}) "
                     f"returned HTTP {response.status_code}"
                 )
                 logger.warning(
-                    "talentsoft: HTTP %d fetching %s (page %d) for %s (attempt %d/%d)",
-                    response.status_code, list_url, page, self.company_name, attempt, MAX_ATTEMPTS,
+                    "talentsoft: HTTP %d fetching %s (%s) for %s (attempt %d/%d)",
+                    response.status_code, url, context, self.company_name, attempt, MAX_ATTEMPTS,
                 )
                 continue
 
@@ -261,7 +362,7 @@ class TalentsoftSource(JobSource):
 
         if error is not None:
             raise SourceError(
-                f"talentsoft: failed to fetch {list_url} (page {page}) for {self.company_name} "
+                f"talentsoft: failed to fetch {url} ({context}) for {self.company_name} "
                 f"after {MAX_ATTEMPTS} attempts"
             ) from error
 
@@ -270,11 +371,11 @@ class TalentsoftSource(JobSource):
         if response.status_code == 404:
             raise SourceNotFoundError(
                 f"talentsoft: board not found for {self.company_name} "
-                f"({self.identifier}): {list_url} returned 404"
+                f"({self.identifier}): {url} returned 404"
             )
         if response.status_code >= 400:
             raise SourceError(
-                f"talentsoft: {self.company_name} ({list_url}) "
+                f"talentsoft: {self.company_name} ({url}) "
                 f"returned HTTP {response.status_code}"
             )
 
@@ -292,6 +393,11 @@ class TalentsoftSource(JobSource):
         return jobs
 
     def _parse_entry(self, entry: dict) -> Job:
+        if entry.get("kind") == "rss":
+            return self._parse_rss_entry(entry)
+        return self._parse_card_entry(entry)
+
+    def _parse_card_entry(self, entry: dict) -> Job:
         title = entry["title"]
         external_id = entry["id"]
         if not external_id:
@@ -309,6 +415,38 @@ class TalentsoftSource(JobSource):
             url=entry["url"],
             posted_at=None,  # not present on the listing page; no per-job fetch, see docstring
             description="",
+            source=self.name,
+            external_id=external_id,
+        )
+
+    def _parse_rss_entry(self, entry: dict) -> Job:
+        """M18 Part B. Unlike the card path above, the RSS export carries a
+        real description and a real posted date -- richer than what the
+        classic template's listing page ever exposed, since that path never
+        needed a per-job fetch either."""
+        title = entry["title"]
+        external_id = entry["id"]
+        if not external_id:
+            raise ValueError("id is empty")
+        categories = entry.get("categories") or []
+        # Position 0 is the profession/department family, not a contract-
+        # type signal -- confirmed live (see module docstring) that position
+        # 1 is consistently the contract-type category ("CDI", "Alternance").
+        employment_hint = categories[1] if len(categories) > 1 else ""
+        description = entry.get("description") or ""
+        location = _location_from_rss_description(description) or (
+            categories[-1] if categories else ""
+        )
+        contract_type = classify_contract_type(title, description, employment_hint)
+
+        return Job(
+            company=self.company_name,
+            title=title,
+            location=location,
+            contract_type=contract_type,
+            url=entry["url"],
+            posted_at=entry.get("posted_at"),
+            description=description,
             source=self.name,
             external_id=external_id,
         )
@@ -332,6 +470,54 @@ def _extract_offer_cards(page_html: str, base_url: str) -> list[dict]:
                 "title": title,
                 "url": base_url + href if href.startswith("/") else href,
                 "badges": badges,
+            }
+        )
+    return postings
+
+
+def _location_from_rss_description(description: str) -> str:
+    match = _RSS_VILLE_LABEL_RE.search(description)
+    return match.group(1).strip() if match else ""
+
+
+def _parse_rss_pub_date(text: str | None) -> datetime | None:
+    if not text:
+        return None
+    try:
+        return parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_rss_feed_text(rss_text: str) -> list[dict]:
+    """A real RSS document is well-formed XML by spec (unlike arbitrary
+    HTML), so a real parser is used here rather than regex -- same
+    precedent as successfactors.py's own RSS mode. ET.ParseError on
+    genuinely malformed content becomes a SourceError; a well-formed but
+    empty feed (no <item>s) is a legitimate M8b zero-result, not an error.
+    """
+    try:
+        root = ET.fromstring(rss_text)
+    except ET.ParseError as exc:
+        raise SourceError(f"talentsoft: malformed RSS feed: {exc}") from exc
+
+    postings = []
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        raw_title = (item.findtext("title") or "").strip()
+        title = _RSS_REFERENCE_PREFIX_RE.sub("", raw_title).strip()
+        categories = [c.text.strip() for c in item.findall("category") if c.text]
+        description = strip_html(item.findtext("description") or "")
+        id_match = _RSS_OFFER_ID_RE.search(link)
+        postings.append(
+            {
+                "kind": "rss",
+                "id": id_match.group(1) if id_match else link,
+                "title": title,
+                "url": link,
+                "categories": categories,
+                "description": description,
+                "posted_at": _parse_rss_pub_date(item.findtext("pubDate")),
             }
         )
     return postings

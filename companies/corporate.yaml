@@ -877,3 +877,17 @@
   tier: warm
   tags: [energy, nuclear, talentsoft]
   # 29 real French candidates, mostly real Alternance postings.
+
+# M18 Part B: Enedis was confirmed Talentsoft in M17 (its own page config
+# names enedis-recrute.talent-soft.com directly) but returned zero --
+# investigated properly this milestone rather than left unresolved. See
+# jobbot/sources/talentsoft.py's own module docstring for the full finding
+# (a third, JS-driven listing template variant this parser never
+# recognized, with a real server-generated RSS export as the fix, not a
+# rendered.py fallback). 15 real search_terms-matched candidates, all real
+# Alternance-Electrotechnicien postings across many French towns.
+- name: Enedis
+  ats: talentsoft
+  identifier: https://enedis-recrute.talent-soft.com
+  tier: warm
+  tags: [energy, utilities, state-owned, talentsoft]

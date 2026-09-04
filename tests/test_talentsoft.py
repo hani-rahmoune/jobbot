@@ -329,21 +329,28 @@ def test_fetch_does_not_paginate_past_the_page_cap_even_with_a_higher_total(
     assert any("page cap" in record.message for record in caplog.records)
 
 
-def test_fetch_returns_page_one_only_when_it_has_zero_cards_despite_a_nonzero_total(
+def test_fetch_falls_back_to_rss_when_it_has_zero_cards_despite_a_nonzero_total(
     mock_client: httpx.Client,
 ) -> None:
-    # Can't measure a page size from zero cards -- rather than divide by
-    # zero or guess, treat page 1 (empty) as the whole result.
+    # M18 Part B: zero cards despite a real, nonzero total means the
+    # classic template isn't one this parser recognizes (confirmed live:
+    # Enedis) -- not a genuinely empty board (which reports total == 0).
+    # The RSS fallback recovers real content instead of reporting nothing.
     source = _make_source(mock_client)
     with respx.mock:
         _mock_robots_allowed(respx.mock)
-        route = respx.get(LIST_URL).mock(
+        list_route = respx.get(LIST_URL).mock(
             return_value=httpx.Response(200, text=_empty_page_html(total=250))
+        )
+        rss_route = respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
         )
         jobs = source.fetch()
 
-    assert route.call_count == 1
-    assert jobs == []
+    assert list_route.call_count == 1
+    assert rss_route.call_count == 1
+    assert len(jobs) == 11
+    assert all(j.contract_type == "apprenticeship" for j in jobs)
 
 
 def test_fetch_falls_back_to_page_one_only_when_total_count_cannot_be_found(
@@ -366,6 +373,146 @@ def test_fetch_falls_back_to_page_one_only_when_total_count_cannot_be_found(
     assert route.call_count == 1  # no total found -- do not risk wrapping around
     assert len(jobs) == 1
     assert any("total-results count" in record.message for record in caplog.records)
+
+
+# --- RSS fallback (M18 Part B) ----------------------------------------------
+
+
+def test_rss_fallback_parses_the_real_fixture_correctly(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=11)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
+        )
+        jobs = {job.external_id: job for job in source.fetch()}
+
+    job = jobs["180754"]
+    assert job.title == "Alternance - Electrotechnicien F/H"  # reference-number prefix stripped
+    assert job.location == "LA FRANCHEVILLE"  # from the description's own "Ville :" label
+    assert job.contract_type == "apprenticeship"
+    assert "Rejoindre nos" in job.description  # real body text, not just the labeled header
+    assert job.posted_at is not None
+    assert job.posted_at.year == 2026
+    assert str(job.url) == (
+        "https://www.enedis.fr/emploi/180754?LCID=1036&idOffre=180754"
+        "&idOrigine=2679&offerReference=2026-180754"
+    )
+
+
+def test_rss_fallback_sends_keywords_when_search_terms_configured(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client, search_terms=["alternance"])
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=11)))
+        rss_route = respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
+        )
+        source.fetch()
+
+    assert rss_route.calls.last.request.url.params["Keywords"] == "alternance"
+
+
+def test_rss_fallback_robots_disallow_raises_source_error(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        respx.get(f"{BASE_URL}/robots.txt").mock(
+            return_value=httpx.Response(
+                200, text="User-agent: *\nAllow: /job/\nDisallow: /handlers/"
+            )
+        )
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=11)))
+        with pytest.raises(SourceError):
+            source.fetch()
+
+
+def test_rss_fallback_logs_a_warning_when_fewer_postings_than_the_reported_total(
+    mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        # The classic page reports far more than the 11 the RSS fixture carries.
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=126)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
+        )
+        with caplog.at_level("WARNING"):
+            source.fetch()
+
+    assert any("RSS fallback" in record.message for record in caplog.records)
+
+
+def test_rss_fallback_no_warning_when_postings_match_the_reported_total(
+    mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=11)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=_read_fixture("rss_feed.xml"))
+        )
+        with caplog.at_level("WARNING"):
+            source.fetch()
+
+    assert not any("RSS fallback" in record.message for record in caplog.records)
+
+
+def test_rss_fallback_malformed_xml_raises_source_error(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=11)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text="<rss><channel><item><oops</item>")
+        )
+        with pytest.raises(SourceError):
+            source.fetch()
+
+
+def test_rss_fallback_well_formed_empty_feed_is_not_an_error(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=5)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text='<rss version="2.0"><channel></channel></rss>')
+        )
+        jobs = source.fetch()
+
+    assert jobs == []
+
+
+def test_rss_entry_with_no_ville_label_falls_back_to_the_last_category(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client)
+    rss_text = (
+        '<rss version="2.0"><channel>'
+        "<item>"
+        "<link>https://example.talent-soft.com/emploi/1?idOffre=1</link>"
+        "<category>Some Department</category>"
+        "<category>CDI</category>"
+        "<category>Nantes</category>"
+        "<title>2026-1 - Ingenieur F/H</title>"
+        "<description>No Ville label present here.</description>"
+        "</item>"
+        "</channel></rss>"
+    )
+    with respx.mock:
+        _mock_robots_allowed(respx.mock)
+        respx.get(LIST_URL).mock(return_value=httpx.Response(200, text=_empty_page_html(total=1)))
+        respx.get(f"{BASE_URL}/handlers/offerRss.ashx").mock(
+            return_value=httpx.Response(200, text=rss_text)
+        )
+        jobs = source.fetch()
+
+    assert len(jobs) == 1
+    assert jobs[0].location == "Nantes"
 
 
 # --- search_terms (M9) -----------------------------------------------------
