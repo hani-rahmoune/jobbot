@@ -698,3 +698,29 @@
   # links), confirmed live: 129 real postings, mostly DACH-region sales
   # roles in this sample but a real, live, French-founded company's own
   # board -- filters.yaml narrows the rest.
+
+# M17 Part A: subsidiary tenants of groups already resolved. French groups
+# routinely run a separate ATS tenant per subsidiary; since we treat each
+# group as one company entry, most subsidiary-only boards were never
+# checked. See discovery/resolved_domains.md's M17 Part A section for the
+# full group/subsidiary/vendor table, including every subsidiary checked
+# and rejected.
+
+- name: Free2Move
+  ats: smartrecruiters
+  identifier: free2move
+  tier: warm
+  tags: [automotive, mobility, stellantis, smartrecruiters]
+  # Stellantis's car-sharing/mobility subsidiary. 9 real postings, all
+  # Paris/IDF, France -- Product Manager, QA Automation Engineer, Data
+  # Engineer. Confirmed via discovery/probe_ats.py's systematic sweep of
+  # subsidiary names, not a guess.
+
+- name: Amundi
+  ats: talentsoft
+  identifier: https://jobs.amundi.com
+  tier: warm
+  tags: [finance, asset-management, credit-agricole, talentsoft]
+  # Credit Agricole's asset-management subsidiary. 23 real search_terms-
+  # matched candidates, all Paris (75015), incl. "Stage - Carbon
+  # Integration Analyst" and "Stage - Inside Sales - Data-as-a-Service".

@@ -278,3 +278,50 @@ sightings without an adapter: Oracle Cloud HCM (Legrand, Hermes -- 2) and
 Oracle Taleo (Societe Generale, and Schneider Electric's OWN secondary
 profile-login link -- arguably 1.5). Neither meets "several" yet; worth
 revisiting if a future session's sweep turns up a third.
+
+## M17 Part A: subsidiary tenants of groups already resolved
+
+French groups routinely run a separate ATS tenant per subsidiary; since a
+group is treated as one company entry, subsidiary-only boards were never
+checked. Swept via discovery/probe_ats.py (self-serve ATS slug guesses) for
+every subsidiary, plus discovery/probe_vendor.py and quick manual checks
+where a plausible domain could be found or guessed.
+
+| Group | Subsidiary | Vendor found | Added? | Notes |
+|---|---|---|---|---|
+| Safran | Aircraft Engines, Electronics & Defense, Landing Systems, Nacelles, Seats, Cabin, Helicopter Engines | none | No | no hit on any of the four self-serve ATS under any obvious slug; not pursued further via manual navigation this session given the volume of the rest of this milestone |
+| Bouygues | Immobilier, Telecom | none | No | no hit on the self-serve sweep |
+| Bouygues | Colas | none (self-hosted Drupal) | No | colas.fr/fr/nous-rejoindre is a Drupal site with generic (non-JobPosting) ld+json and the stock Drupal robots.txt boilerplate -- real listings likely live elsewhere, not found this session |
+| Bouygues | Equans | none | No | no hit on the self-serve sweep |
+| Bouygues | TF1 | none | No | no hit on the self-serve sweep; groupe-tf1.fr/fr/carrieres 404s, correct URL not found |
+| Vinci | Energies | none | No | vinci-energies.com/en/careers/ 404s; no hit on the self-serve sweep |
+| Vinci | Autoroutes, Airports, Eurovia, Cegelec | none | No | no hit on the self-serve sweep |
+| Vinci | Construction | SmartRecruiters (confirmed) | No | real tenant (slug `vinciconstruction`) but only 1 posting, in Boston, MA -- no French relevance, possibly a different regional entity under the same brand name |
+| Vinci | Axians | SmartRecruiters (confirmed) | No | real tenant, 3 postings, all Spain/Germany/Netherlands -- no French content in the current board |
+| Thales | Alenia Space, DIS, Services | none | No | no hit on the self-serve sweep |
+| Renault | Ampere, Alpine, Dacia France, Renault Trucks | none | No | no hit on the self-serve sweep |
+| Stellantis | Forvia | none | No | no hit on the self-serve sweep (Forvia is investigated again, more thoroughly, in Part B) |
+| Stellantis | Opel France | none | No | no hit on the self-serve sweep |
+| Stellantis | Free2Move | SmartRecruiters | **Added** | 9 real postings, all Paris/IDF |
+| Engie | Solutions, GRTgaz, Storengy, Green | none | No | no hit on the self-serve sweep; likely reachable via the already-added Engie SuccessFactors RMK tenant instead, which M14 already confirmed surfaces GRDF-subsidiary content -- not independently re-checked |
+| Engie | GRDF | — | No | grdf.fr returns 403 to our honest User-Agent -- a wall, not retried |
+| Capgemini | Engineering, Invent, Sogeti, Frog | none | No | no hit on the self-serve sweep |
+| Atos | Eviden | none | No | eviden.com/careers/ shows no recognized vendor marker |
+| Atos | Bull | none | No | no hit on the self-serve sweep |
+| Orange | Business | none | No | orange-business.com shows no recognized vendor marker |
+| Orange | Cyberdefense | none | No | guessed URL 404s, not resolved |
+| Orange | Sofrecom | none | No | no hit on the self-serve sweep |
+| Credit Agricole | CA Technologies & Services | none | No | no hit on the self-serve sweep |
+| Credit Agricole | Amundi | Talentsoft | **Added** | 23 real search_terms-matched candidates, all Paris |
+| Credit Agricole | Indosuez | none | No | no hit on the self-serve sweep |
+| Societe Generale | Ayvens, Sogeprom | none | No | no hit on the self-serve sweep |
+| Societe Generale | Boursorama | none (self-hosted) | No | groupe.boursorama.fr's own careers page failed to connect this session; no recognized vendor found in the search results either |
+| BPCE | Natixis | none | No | natixis.groupebpce.com shows no recognized vendor marker |
+| BPCE | Banque Populaire, Caisse d'Epargne, Oney | none | No | no hit on the self-serve sweep; Oney's guessed domain failed to connect |
+
+2 added (Free2Move, Amundi). Given the scale of this milestone's four
+parts, subsidiaries with no self-serve ATS hit and no quickly-findable
+domain were recorded as "no hit" rather than chased through a full manual
+homepage-to-careers-to-listings navigation for each -- that deeper method
+was reserved for Parts B/C/D's own named companies, which is what the
+milestone's method section describes it for.
