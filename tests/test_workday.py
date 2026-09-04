@@ -96,6 +96,46 @@ def test_missing_location_becomes_empty_string_not_a_crash(workday_payload, work
     assert jobs["/job/Remote-Location/Field-Sales-Representative_R9000003"].location == ""
 
 
+def test_falls_back_to_bullet_fields_when_locations_text_is_absent(
+    workday_source: WorkdaySource,
+) -> None:
+    # M16 Part C: confirmed live on Accenture France's own tenant -- no
+    # locationsText field at all, only bulletFields, consistently
+    # [requisition_id, location] across every real posting checked.
+    entry = {
+        "title": "AI Engineer - Global Strategy Consultant",
+        "externalPath": "/job/London/AI-Engineer_R00333207",
+        "bulletFields": ["R00333207", "London"],
+    }
+    job = workday_source._parse_entry(entry)
+    assert job.location == "London"
+
+
+def test_bullet_fields_fallback_is_never_used_when_locations_text_is_present(
+    workday_source: WorkdaySource,
+) -> None:
+    entry = {
+        "title": "Role",
+        "externalPath": "/job/Loc/Role_R1",
+        "locationsText": "Paris, France",
+        "bulletFields": ["R1", "Some Other Value"],
+    }
+    job = workday_source._parse_entry(entry)
+    assert job.location == "Paris, France"
+
+
+def test_bullet_fields_fallback_is_empty_when_no_field_matches(
+    workday_source: WorkdaySource,
+) -> None:
+    entry = {
+        "title": "Role",
+        "externalPath": "/job/Loc/Role_R1",
+        "bulletFields": ["R1"],  # only the requisition id, no location field at all
+    }
+    job = workday_source._parse_entry(entry)
+    assert job.location == ""
+
+
 def test_posted_at_is_always_none_and_description_always_empty(
     workday_payload, workday_source
 ) -> None:

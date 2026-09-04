@@ -45,7 +45,7 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Michelin | recrutement.michelin.fr | — | Unresolved | not RMK/Eightfold. Note: **Michelin is already `Added` via Workday** under `companies/corporate.yaml` (a different Michelin careers surface) — this domain is a second, unconfirmed candidate, not yet reconciled with the existing Workday entry |
 | Amadeus | jobs.amadeus.com / amadeus.com | — | Unresolved | not RMK/Eightfold |
 | Safran | safran-group.com | — | Unresolved | sitemap 403s; not RMK/Eightfold |
-| Schneider Electric | careers.se.com | — | Unresolved | not RMK/Eightfold |
+| Schneider Electric | careers.se.com | Jibe | Added (M16 Part C) | not RMK/Eightfold, but careers.se.com is itself a real Jibe tenant -- see the M16 Part C section below |
 | Enedis | enedis.fr | — | Unresolved | not RMK/Eightfold |
 | BPCE | recrutement.bpce.fr | — | Unresolved | not RMK/Eightfold |
 | Natixis | recrutement.natixis.com | — | Unresolved | not RMK/Eightfold |
@@ -56,12 +56,12 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Vinci | emplois.vinci.com, jobs.vinci.com both checked | — | Unresolved | neither is RMK/Eightfold (M14); emplois.vinci.com failed to connect this session (worth a retry); subsidiaries (VINCI Autoroutes, VINCI Energies) have their own separate domains, not investigated |
 | Suez | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
 | Intermarche | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
-| Accenture France | not resolved | — | Unresolved | jobs.accenture.com is the only lead so far, not yet checked (global site, likely not France-specific) |
+| Accenture France | accenture.wd103.myworkdayjobs.com/AccentureCareers | Workday | Added (M16 Part C) | see the M16 Part C section below |
 | Air France | airfrance-recrute.talent-soft.com | Talentsoft | Added (M14) | search_terms narrowed to 11 real "Stage" postings |
 | Engie | jobs.engie.com | SuccessFactors RMK | Added (M14) | sitemap mode, hit the 150-page cap (164 real candidates), real French "ALTERNANCE" content via its GRDF subsidiary |
 | Sodexo France | sodexo-recrute.talent-soft.com | Talentsoft | Added (M14 Part B1) | found in M12's search sweep, never actually added until now |
-| OVHcloud | careers.ovhcloud.com | — | Unresolved | ATS not identified, not yet checked |
-| Doctolib | not resolved | — | Unresolved | not yet attempted |
+| OVHcloud | careers.ovhcloud.com (links to career5.successfactors.eu) | SuccessFactors Career Site Builder | Rejected | a different SAP SuccessFactors product than RMK, on a shared multi-tenant domain whose own robots.txt disallows the job search path entirely (`Disallow: /`, only `/login` allowed) -- see the M16 Part C section below |
+| Doctolib | job-boards.greenhouse.io/doctolib (via connect.doctolib.com/fr/carrieres) | Greenhouse | Added (M16 Part C) | 129 real postings -- see the M16 Part C section below |
 | Blablacar | jobs.lever.co/blablacar | Lever | Added (M16 Part A) | 12 real postings, all France/remote-plausible -- found via the systematic Greenhouse/Lever/Ashby/SmartRecruiters sweep, not a domain-resolution attempt |
 | Mirakl | job-boards.greenhouse.io/mirakl | Greenhouse | Added (M14) | 14 real postings, confirmed live. A second board, "miraklfr", exists but is empty (0 jobs) -- do not use it |
 | Contentsquare | jobs.lever.co/contentsquare | Lever | Added (M14) | 31 real postings, confirmed live |
@@ -240,3 +240,41 @@ category from a commercial job-board aggregator (Indeed/LinkedIn/WTTJ),
 but it IS still an aggregation point rather than any single institution's
 own first-party system, which is what CLAUDE.md rule 2/3 are built around.
 Flagged, not added, pending that decision.
+
+## M16 Part C: the unresolved corporates, done via the real navigation method
+
+Method used for every company below, exactly as specified: load the
+corporate homepage, find and follow the careers link, find and follow the
+link to actual job listings, record the destination host, identify the
+vendor from that destination (CSP header, robots.txt boilerplate, or URL
+shape) in one request. Michelin skipped (already added via Workday).
+BlaBlaCar already resolved in Part A (Lever) -- not re-investigated here.
+
+| Company | Destination found | Vendor | Status | Notes |
+|---|---|---|---|---|
+| Safran | safran-group.com (403 on every path tried) | — | Rejected | confirmed still a 403 wall to our honest User-Agent, exactly as prior sessions found -- not retried beyond this one check, per the explicit rule |
+| Schneider Electric | careers.se.com | Jibe | Added | see companies/corporate.yaml's own comment for the full finding |
+| Dassault Systemes | 3ds.com/careers/jobs | Unidentified (likely client-rendered) | Unresolved | no CSP/body vendor marker found, no JSON-LD, no external ATS script host visible in the page source; not pursued into a full Playwright investigation this session |
+| Societe Generale | careers.societegenerale.com/en/search | Oracle Taleo (socgen.taleo.net) | Unresolved | real, direct link found ("Create my profile" -> socgen.taleo.net/careersection/..."); no adapter exists for Taleo and only one tenant confirmed so far -- not built, per the "several Oracle tenants" threshold this session also applies to Taleo |
+| Credit Agricole SA | groupecreditagricole.jobs -> casa-recrute.talent-soft.com | Talentsoft | Rejected | confirmed real Talentsoft tenant, but its own robots.txt is a bare `Disallow: /` with no overriding Allow at all -- a genuine wall, not a parser-bug false negative (there is nothing for a longest-match fix to override here). Distinct from Credit Agricole CIB's own Talentsoft tenant (already added), whose robots.txt carries no rules |
+| Accenture France | accenture.com/fr-fr/careers/jobsearch -> accenture.wd103.myworkdayjobs.com/AccentureCareers | Workday | Added | see companies/corporate.yaml's own comment for the full finding, incl. a real workday.py bug found and fixed |
+| L'Oreal | 3ds... career.loreal.com / careers.loreal.com | Avature | Investigated, not added | confirmed via CSP body markers (avature, avacdn) and robots.txt's own "Disallow: / then selective Allow: subpaths" shape (the exact pattern TotalEnergies and this session's own rendered.py sitemap mode already handle). A `/FR/sitemap_index.xml` exists, but "FR" turned out to be an internal Avature portal/division code, NOT a France filter -- the first candidate URL checked was a real posting for "Internship Program Colombia". Finding France-relevant candidates here needs more investigation than TotalEnergies did (a different portal segment, not yet identified) -- deferred rather than rushed, flagged for a future session |
+| Decathlon | joinus.decathlon.fr/fr/annonces | Unidentified | Unresolved | no vendor marker found on the actual listings page; not pursued further this session |
+| Doctolib | connect.doctolib.com/fr/carrieres -> job-boards.greenhouse.io/doctolib | Greenhouse | Added | see companies/corporate.yaml's own comment for the full finding |
+| OVHcloud | careers.ovhcloud.com -> career5.successfactors.eu | SuccessFactors Career Site Builder | Rejected | a DIFFERENT SAP SuccessFactors product from RMK (a shared multi-tenant domain, `career_company=ovh` query param, not a per-tenant subdomain the way RMK works) -- confirmed NOT an RMK match via probe_vendor.py. Its own robots.txt is `Disallow: /` with only `Allow: /login` -- the job search page itself is walled off, a genuine robots.txt block, not a parser-bug false negative |
+| Vinci | emplois.vinci.com (fails to connect, same as M14) / vinci-groupe.profils.org (real, reachable) | "Profils.org" (no adapter) | Unresolved | emplois.vinci.com's connectivity problem persists across two sessions now, apparently a real, ongoing issue on Vinci's end; the working alternate (profils.org) is a vendor not in our adapter roster, no JSON-LD found either |
+| Bouygues (group) | talents.bouygues.com and groupebouygues-cand.talent-soft.com both found in search results | Talentsoft (unconfirmed) | Unresolved | BOTH candidate domains fail DNS resolution from this environment -- stale web-search results, same pattern as M14's own Bouygues Telecom finding. Bouygues Construction (already added) remains the only resolved entity in this group |
+| Suez | not resolved | — | Unresolved | every search result was an aggregator; no dedicated official domain found, same as M13 |
+| La Poste | laposterecrute.fr | Unconfirmed | Unresolved | TLS certificate hostname mismatch (`certificate is not valid for 'laposterecrute.fr'`) -- a real, ongoing misconfiguration on their end, not investigated further, same category of problem as Fnac Darty's expired certificate |
+| Legrand | careers.legrand.com/en/sites/CX_1001 | Oracle Cloud HCM | Investigated, not added | confirmed via CSP/body markers (oraclecloud, oraclecloud.com) and the `/sites/CX_*` URL shape. This IS the real electrical-equipment Legrand (confirmed by domain -- careers.legrand.com, not the wrong-entity carrieres.groupe-legrand.fr from M11). No adapter exists for Oracle Cloud HCM and only one other tenant found this session (Hermes) -- below the "several tenants" threshold, not built |
+| Amadeus | not resolved | — | Unresolved | every search result was an aggregator; no dedicated official domain found |
+| Intermarche | carrieres-mousquetaires.com (Les Mousquetaires group) / careers.smartrecruiters.com/GroupementLesMousquetaires | SmartRecruiters (confirmed, empty) | Unresolved | the SmartRecruiters tenant is real (confirmed via the API directly) but returns `totalFound: 0` -- either inactive or superseded by their own primary domain, which shows no recognized vendor marker of its own |
+| Hermes | talents.hermes.com/en/sites/CX | Oracle Cloud HCM | Confirmed, not added | matches Legrand's exact URL shape and CSP markers -- the second Oracle Cloud HCM tenant found this session, still below the "several tenants" threshold per the explicit instruction not to build for one tenant |
+
+3 added this part (Schneider Electric via Jibe, Accenture France via Workday,
+Doctolib via Greenhouse) -- none needed a new adapter; all three fit an
+adapter this project already had. Two vendor families now have multiple
+sightings without an adapter: Oracle Cloud HCM (Legrand, Hermes -- 2) and
+Oracle Taleo (Societe Generale, and Schneider Electric's OWN secondary
+profile-login link -- arguably 1.5). Neither meets "several" yet; worth
+revisiting if a future session's sweep turns up a third.

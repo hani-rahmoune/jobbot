@@ -653,3 +653,48 @@
   # search_terms found 146 real postings across alternance/stage/
   # apprenticeship/internship, confirmed live: real French Saint Laurent/
   # Boucheron/Ginori postings, correctly classified and dated.
+
+# M16 Part C: the unresolved corporates, done via the real navigation method
+# (homepage -> careers link -> job-listings link -> record the destination
+# host -> identify the vendor from it), not by guessing hostnames. Full
+# table of every company checked (added or not) in
+# discovery/resolved_domains.md's M16 Part C section.
+
+- name: Schneider Electric
+  ats: jibe
+  identifier: https://careers.se.com|France
+  tier: warm
+  tags: [industrial, energy, jibe]
+  # Found via careers.se.com's own "Create my profile" Taleo link
+  # incidentally naming jibe.com in a nearby privacy-policy reference --
+  # confirmed careers.se.com IS itself a Jibe tenant (loads
+  # 64 jibecdn.com references; /api/jobs is real, public, unauthenticated).
+  # 2000 global postings (page-capped) -> 115 with country=France ->
+  # 29 with search_terms, incl. real "Alternance" postings across multiple
+  # French sites. A SEPARATE, session-gated Oracle Taleo link
+  # (schneiderele.taleo.net) also exists on the same page for a different
+  # part of their hiring flow -- not the board used here.
+
+- name: Accenture France
+  ats: workday
+  identifier: accenture.wd103.AccentureCareers
+  tier: warm
+  tags: [consulting, it-services, workday]
+  # Found via accenture.com/fr-fr/careers/jobsearch's own link to
+  # accenture.wd103.myworkdayjobs.com. A global, huge board (788 raw
+  # search_terms-matched postings across every Accenture market) -- 7
+  # confirmed French/Paris-based among a sample, incl. real Salesforce/
+  # Workday/Snowflake practice roles. Found and fixed a real workday.py bug
+  # here: this tenant has no `locationsText` field at all, only
+  # `bulletFields` ([requisition_id, location]) -- see the module's own
+  # comment on _location_from_bullet_fields().
+
+- name: Doctolib
+  ats: greenhouse
+  identifier: doctolib
+  tier: hot
+  tags: [healthtech, saas, greenhouse]
+  # Found via a direct web search hit (boards.greenhouse.io/doctolib job
+  # links), confirmed live: 129 real postings, mostly DACH-region sales
+  # roles in this sample but a real, live, French-founded company's own
+  # board -- filters.yaml narrows the rest.

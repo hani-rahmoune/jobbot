@@ -126,6 +126,26 @@ DEFAULT_MAX_POSTINGS = 2000
 
 _IDENTIFIER_RE = re.compile(r"^([a-zA-Z0-9-]+)\.wd(\d+)\.([a-zA-Z0-9_-]+)$")
 
+# M16 Part C: some Workday tenants (confirmed live: Accenture France) don't
+# expose `locationsText` on the list response at all -- their only location
+# signal is `bulletFields`, a per-tenant-configurable array whose exact
+# content isn't documented anywhere. Confirmed live across 20 real postings
+# that this tenant's bulletFields is consistently [requisition_id, location]
+# -- the id always matches this pattern (Workday's own "R" + digits
+# requisition numbering), so the first field that DOESN'T match it is taken
+# as the location. Used only as a fallback when locationsText is absent, so
+# tenants this adapter already relies on locationsText for are unaffected.
+_REQUISITION_ID_RE = re.compile(r"^R\d+$")
+
+
+def _location_from_bullet_fields(bullet_fields: object) -> str:
+    if not isinstance(bullet_fields, list):
+        return ""
+    for field in bullet_fields:
+        if isinstance(field, str) and not _REQUISITION_ID_RE.match(field):
+            return field
+    return ""
+
 
 class WorkdaySource(JobSource):
     name = "workday"
@@ -350,7 +370,9 @@ class WorkdaySource(JobSource):
         if not external_path:
             raise ValueError("externalPath is empty")
         url = self._base_job_url() + external_path
-        location = entry.get("locationsText") or ""
+        location = entry.get("locationsText") or _location_from_bullet_fields(
+            entry.get("bulletFields")
+        )
 
         # No description and no reliable employment-type field in the list
         # response (see module docstring) -- title carries classification.
