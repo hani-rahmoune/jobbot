@@ -86,6 +86,7 @@ from jobbot.settings import SettingsError, load_settings
 # to build_source() below. Add new adapter imports here as they land.
 from jobbot.sources.ashby import AshbySource  # noqa: F401
 from jobbot.sources.base import JobSource, SourceError, registered_sources
+from jobbot.sources.eightfold import EightfoldSource
 from jobbot.sources.greenhouse import GreenhouseSource  # noqa: F401
 from jobbot.sources.jibe import JibeSource
 from jobbot.sources.jsonld import JsonLdSource  # noqa: F401
@@ -109,7 +110,7 @@ from jobbot.store import SCHEMA_VERSION, JobStore, StoreStats, is_publishable
 # client-side sitemap-slug pre-filter) and real narrowing numbers.
 _SEARCH_CAPABLE_ADAPTERS = (
     WorkdaySource, SmartRecruitersSource, JibeSource, TalentsoftSource, SitemapJsonLdSource,
-    SuccessFactorsSource,
+    SuccessFactorsSource, EightfoldSource,
 )
 
 logger = logging.getLogger(__name__)

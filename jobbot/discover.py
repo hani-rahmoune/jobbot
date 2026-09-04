@@ -67,6 +67,7 @@ from jobbot.models import normalize
 from jobbot.settings import SettingsError, load_settings
 from jobbot.sources.ashby import AshbySource
 from jobbot.sources.base import JobSource, SourceError
+from jobbot.sources.eightfold import EightfoldSource
 from jobbot.sources.greenhouse import GreenhouseSource
 from jobbot.sources.html_text import strip_html
 from jobbot.sources.jibe import JibeSource
@@ -210,6 +211,24 @@ _JIBE_SIGNATURE_RE = re.compile(r"jibecdn\.com", re.IGNORECASE)
 # discovery mechanism), not just the bare domain the way Jibe's is.
 _SUCCESSFACTORS_SIGNATURE_RE = re.compile(r"/platform/js/j2w/j2w\.fallbacks\.js", re.IGNORECASE)
 
+# M14 Part A: Eightfold AI, found via Kering's real board
+# (careers.kering.com). "eightfold.ai" appears in the page's own rendered
+# HTML (a privacy-policy footer link and an internal "contextUrl" config
+# value), not just in response headers -- a pure, no-network signature this
+# function can check, unlike the CSP/X-EF-* header signals
+# discovery/probe_vendor.py uses (those need the response object, not just
+# the body text detect_ats() sees).
+_EIGHTFOLD_SIGNATURE_RE = re.compile(r"eightfold\.ai", re.IGNORECASE)
+# Every tenant's careers host confirmed so far uses a "careers." or "jobs."
+# subdomain of the employer's own domain, one label to strip -- e.g.
+# careers.kering.com -> kering.com, which is genuinely the `domain` value
+# jobbot/sources/eightfold.py's API calls need (confirmed live on Kering).
+# This is a best-effort GUESS, not a verified fact: it's independently
+# confirmed or rejected by verify() actually calling the adapter, the same
+# way _workday_identifier's and _talentsoft_identifier's own guesses are --
+# never trusted into companies/*.yaml on the strength of this alone.
+_EIGHTFOLD_HOST_PREFIXES = ("careers.", "jobs.", "talent.", "talents.")
+
 # Lightweight presence check, not a full extraction (jsonld.py's own adapter
 # does the real parsing at fetch time) -- just enough to tell "this page has
 # JobPosting structured markup" from "this page has neither".
@@ -217,6 +236,13 @@ _JSONLD_SCRIPT_RE = re.compile(
     r"<script[^>]*type\s*=\s*[\"']?application/ld\+json[\"']?[^>]*>(.*?)</script>",
     re.IGNORECASE | re.DOTALL,
 )
+
+
+def _eightfold_domain_guess(netloc: str) -> str:
+    for prefix in _EIGHTFOLD_HOST_PREFIXES:
+        if netloc.startswith(prefix):
+            return netloc[len(prefix):]
+    return netloc
 
 
 def detect_ats(html: str, page_url: str) -> tuple[str | None, str | None]:
@@ -239,6 +265,11 @@ def detect_ats(html: str, page_url: str) -> tuple[str | None, str | None]:
         parsed = urlsplit(page_url)
         return "successfactors", f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
 
+    if _EIGHTFOLD_SIGNATURE_RE.search(html):
+        parsed = urlsplit(page_url)
+        domain_guess = _eightfold_domain_guess(parsed.netloc)
+        return "eightfold", f"{parsed.scheme}://{parsed.netloc}|{domain_guess}"
+
     for script_match in _JSONLD_SCRIPT_RE.finditer(html):
         if "JobPosting" in script_match.group(1):
             return "jsonld", page_url
@@ -257,6 +288,7 @@ _ADAPTER_CLASSES: dict[str, type[JobSource]] = {
     "jibe": JibeSource,
     "sitemap_jsonld": SitemapJsonLdSource,
     "successfactors": SuccessFactorsSource,
+    "eightfold": EightfoldSource,
 }
 
 

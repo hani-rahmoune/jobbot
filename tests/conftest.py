@@ -100,6 +100,22 @@ def lever_payload() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
+def eightfold_search_payload() -> dict[str, Any]:
+    """The full mocked /api/pcsx/search response:
+    {"data": {"positions": [...], "count": N}}."""
+    return json.loads((FIXTURES_DIR / "eightfold_search_sample.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def eightfold_details_payload() -> list[dict[str, Any]]:
+    """Two mocked /api/pcsx/position_details responses' own "data" objects,
+    matching the two positions in eightfold_search_sample.json -- used
+    directly by parse() tests, and to mock each position_details call in
+    fetch_raw() tests."""
+    return json.loads((FIXTURES_DIR / "eightfold_details_sample.json").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
 def ashby_payload() -> dict[str, Any]:
     """The full mocked API response: {"jobs": [...]}."""
     return json.loads((FIXTURES_DIR / "ashby_sample.json").read_text(encoding="utf-8"))

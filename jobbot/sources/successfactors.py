@@ -17,7 +17,8 @@ Manager -- see companies/corporate.yaml's note -- not this vendor at all):
    domain (jobs2web.com -- the literal legacy product domain, still live --
    rmkcdn.successfactors.com, or any *.sapsf.com host).
 
-See discovery/probe_rmk.py, which checks all three, and the M12 report for
+See discovery/probe_vendor.py (renamed from probe_rmk.py in M14 once it
+covered a second vendor), which checks all three, and the M12 report for
 the full per-tenant table this session's sweep produced.
 
 Part B2 ruled out a JSON API: `/search-jobs/results` (RMK's own documented

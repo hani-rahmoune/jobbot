@@ -1,0 +1,32 @@
+{
+  "status": 200,
+  "error": {"message": "", "body": ""},
+  "data": {
+    "positions": [
+      {
+        "id": 563705891147682,
+        "displayJobId": "R168914",
+        "name": "SAINT LAURENT Stage Assistant(e) Développement Jersey",
+        "locations": ["Paris, France"],
+        "standardizedLocations": ["Paris, IDF, FR"],
+        "postedTs": 1784592000,
+        "department": "Design",
+        "creationTs": 1784073600,
+        "positionUrl": "/careers/job/563705891147682"
+      },
+      {
+        "id": 563705892727529,
+        "displayJobId": "R170443",
+        "name": "BOTTEGA VENETA Store Manager (m/f/d) Vienna",
+        "locations": ["Vienna, Austria"],
+        "standardizedLocations": ["Vienna, Vienna, AT"],
+        "postedTs": 1788393600,
+        "department": "Sales",
+        "creationTs": 1788393600,
+        "positionUrl": "/careers/job/563705892727529"
+      }
+    ],
+    "count": 2,
+    "sortBy": "relevance"
+  }
+}

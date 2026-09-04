@@ -14,6 +14,7 @@ from jobbot.settings import Settings
 # imports here as they land.
 from jobbot.sources import (  # noqa: F401
     ashby,
+    eightfold,
     greenhouse,
     jibe,
     jsonld,
@@ -54,7 +55,15 @@ FORBIDDEN_LITERALS = (
 # preference (CLAUDE.md rule 4's explicit exemption). It lives in
 # classify.py (M6 A1), shared by every adapter -- greenhouse.py itself no
 # longer contains any of it.
-EXEMPT_FILES = {"classify.py"}
+#
+# M14 Part A: eightfold.py indexes Eightfold AI's own JSON response
+# envelope, {"data": {"positions": [...], "count": N}} -- the literal
+# string "data" is that third-party API's own field name (payload["data"]),
+# not a hardcoded location/keyword preference, and there is no way to
+# access that field without writing its exact name somewhere in the file.
+# Same category of exemption as classify.py's: a technical term this check
+# can't distinguish from real rule-4 vocabulary, not a disguised one.
+EXEMPT_FILES = {"classify.py", "eightfold.py"}
 
 
 def _forbidden_pattern(literal: str) -> re.Pattern[str]:

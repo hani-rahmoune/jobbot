@@ -34,13 +34,17 @@ from pydantic import BaseModel, Field, ValidationError
 # candidate-facing layer from whatever was checked before) genuinely
 # public, unauthenticated, and sitemap-discoverable -- see
 # jobbot/sources/successfactors.py's module docstring for the three
-# confirmation signals and discovery/probe_rmk.py for the tenant sweep. An
-# identifier not in this set is a config typo or an ATS we haven't built,
-# either way it's an error, not a silent skip.
+# confirmation signals and discovery/probe_vendor.py for the tenant sweep.
+# M14 Part A: eightfold -- found via Kering's real board, a talent platform
+# with its own public, unauthenticated, paginated JSON search API (see
+# jobbot/sources/eightfold.py's module docstring); discovery/probe_vendor.py
+# (renamed from probe_rmk.py once it covered a second vendor) checks for it
+# alongside the RMK signals. An identifier not in this set is a config typo
+# or an ATS we haven't built, either way it's an error, not a silent skip.
 KNOWN_ATS = frozenset(
     {
         "greenhouse", "lever", "ashby", "jsonld", "workday", "smartrecruiters", "jibe",
-        "talentsoft", "sitemap_jsonld", "rendered", "successfactors",
+        "talentsoft", "sitemap_jsonld", "rendered", "successfactors", "eightfold",
     }
 )
 

@@ -516,3 +516,18 @@
 #   vendor, not folded into this rendered.py sweep): confirm whether
 #   Eightfold has its own JSON-LD/API surface before reaching for
 #   rendered.py's selector fallback again.
+
+# M14 Part A: the M13 finding above was followed up properly. Eightfold AI
+# does have a public, unauthenticated, paginated JSON search API
+# (/api/pcsx/search + /api/pcsx/position_details, both robots.txt-allowed) --
+# see jobbot/sources/eightfold.py's module docstring for the full
+# investigation. Kering added below.
+
+- name: Kering
+  ats: eightfold
+  identifier: https://careers.kering.com|kering.com
+  tier: warm
+  tags: [luxury, retail, eightfold]
+  # search_terms found 146 real postings across alternance/stage/
+  # apprenticeship/internship, confirmed live: real French Saint Laurent/
+  # Boucheron/Ginori postings, correctly classified and dated.
