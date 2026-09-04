@@ -413,3 +413,41 @@ through the real adapter before adding.
 10 added. Two real tenants found and deliberately not added: Cegid (real,
 zero French relevance) and Sunday (real, but almost certainly a
 different, US-based company sharing the name).
+
+## M18 Part C: Grand Ouest (Nantes/Rennes/Angers/Vendee) coverage
+
+The user's search area includes Nantes and nearby, but nearly every source
+so far is Paris-headquartered. Same cascade: probe_ats.py, then
+probe_vendor.py, then manual navigation for the highest-value names. A
+WebSearch spend-limit interruption mid-part meant the back half of this
+list got direct-guess httpx vendor checks rather than full manual
+navigation -- noted honestly below rather than glossed over.
+
+| Company | Vendor found | Added? | Notes |
+|---|---|---|---|
+| Talan | SmartRecruiters | **Added** | 480 total, 304 France-relevant |
+| Squad | Greenhouse (confirmed real) AND Ashby (confirmed real) | No | both are real tenants, but Kyiv/Lviv-based (Greenhouse) and Argentina-based (Ashby) -- a different company sharing the name, not the French one, per the same caution M17 already applied to Sunday |
+| Klaxoon | Greenhouse | **Added** | 6 real Rennes/France-remote postings, explicitly "[Klaxoon]"-branded |
+| Klaxoon | SmartRecruiters | **Added** | 3 real Cesson-Sevigne (Rennes) postings, confirmed disjoint from the Greenhouse board (zero title overlap) -- both added rather than guessing which is "the" real one |
+| Chantiers de l'Atlantique | Talentsoft | **Added** | Saint-Nazaire shipbuilder, 165 total, 15 real search_terms-matched candidates |
+| Sekoia.io | "Welcomekit" (no adapter) | No | sekoia.welcomekit.co |
+| HarfangLab | Teamtailor (no adapter) AND "Welcomekit" (no adapter, a secondary incubator-hosted listing) | No | harfanglab-1666711819.teamtailor.com is the primary |
+| Delta Dore | Teamtailor (no adapter) | No | jobs-group.deltadore.com -- SECOND Teamtailor sighting this session (with HarfangLab); worth a dedicated future look if a third tenant turns up |
+| Gatewatcher | Unconfirmed | No | gatewatcher.com/carrieres/ shows no recognized vendor marker |
+| LDC, Groupe Roullier, Cooperl, Yves Rocher | Unconfirmed | No | guessed URLs 404'd or were blocked; not pursued further after the WebSearch interruption |
+| Fleury Michon | Unconfirmed (self-hosted) | No | fleurymichon.fr/nous-rejoindre shows no recognized vendor marker |
+| Chantiers de l'Atlantique, Armor Group, Beneteau, Terrena, Sigma Informatique, Neosoft, Kereval, Clever Cloud, Lengow, iAdvize, Akeneo, Manutan, Ekium, Onepoint, Eiffage Grand Ouest, Eram, Cointreau, Giffard, Bodet, Brioche Pasquier, Evolis, We Network, Samsic, Groupe Legendre, Groupe Beaumanoir, Le Duff, Bridor, Niji, Glimps, Amossys, Energiency, Hoppen, Ouest-France, Blue Solutions, Sill, Triballat, Jean Floc'h, Groupe Bougrier, Cougnaud, Atlantic Group, Sepro Group | none | No | no hit on the self-serve sweep; the ones not separately listed above weren't pursued via manual navigation given the scale of this milestone and the mid-session search-budget interruption |
+
+Location-specific "X City" entries in the milestone's own list (Bureau
+Veritas Nantes, Airbus Atlantique, Daher Nantes, SNCF Nantes, Thales
+Angers, Valeo Angers, Bosch Angers, Scania Angers, Sagemcom Rennes,
+InterDigital Rennes) were deliberately NOT investigated as separate
+company entries -- these read as regional sites of already-covered (or,
+for Bosch/Scania, not-yet-covered) group-wide entities, not distinct
+legal entities with their own tenant. Adding a fake separate "company" for
+a regional office would risk exactly the kind of entity confusion the
+explicit rule warns against; where the parent group already has a
+tenant (Airbus, Valeo, Bureau Veritas, SNCF), its existing board already
+covers that office's postings via location, not a second config entry.
+
+4 added.

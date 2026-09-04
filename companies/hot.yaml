@@ -407,3 +407,29 @@
   tier: hot
   tags: [fintech, savings, paris]
   # 2 postings, both Paris.
+
+# --- M18 Part C: Grand Ouest (Nantes/Rennes/Angers/Vendee) coverage -----
+#
+# See discovery/resolved_domains.md's M18 Part C section for the full
+# table, including every company checked and rejected.
+
+- name: Klaxoon
+  ats: greenhouse
+  identifier: klaxoon
+  tier: hot
+  tags: [region-rennes, saas, collaboration, greenhouse]
+  # 6 postings, all Rennes/France-remote, explicitly "[Klaxoon]"-branded.
+  # Klaxoon's own homepage now links to Wrike's careers page (a likely
+  # acquisition/merger), but Wrike uses its OWN, separate Greenhouse token
+  # ("wrike", confirmed live) -- this "klaxoon" token is still a real,
+  # distinct, currently-live board, not a stale alias.
+
+- name: Klaxoon (SmartRecruiters)
+  ats: smartrecruiters
+  identifier: klaxoon
+  tier: hot
+  tags: [region-rennes, saas, collaboration, smartrecruiters]
+  # 3 postings, all Cesson-Sevigne (Rennes area) -- confirmed live to be
+  # entirely disjoint from the Greenhouse board above (zero overlapping
+  # titles: sales/customer-success roles here vs. tech/product roles
+  # there), so both are added rather than picking one.

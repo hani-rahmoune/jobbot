@@ -891,3 +891,28 @@
   identifier: https://enedis-recrute.talent-soft.com
   tier: warm
   tags: [energy, utilities, state-owned, talentsoft]
+
+# M18 Part C: Grand Ouest (Nantes/Loire-Atlantique, Angers/Maine-et-Loire,
+# Rennes/Bretagne, Vendee) coverage -- the user's own search area includes
+# Nantes and nearby, but nearly every source so far is Paris-headquartered.
+# See discovery/resolved_domains.md's M18 Part C section for the full
+# table, including every company checked and rejected.
+
+- name: Chantiers de l'Atlantique
+  ats: talentsoft
+  identifier: https://carrieres-offresemploi.chantiers-atlantique.com
+  tier: warm
+  tags: [region-nantes, shipbuilding, industry, talentsoft]
+  # Saint-Nazaire shipbuilder, 165 total postings; 15 real search_terms-
+  # matched candidates, incl. "Alternance - Tuyauteur Naval" and multiple
+  # real engineering/HSE internships.
+
+- name: Talan
+  ats: smartrecruiters
+  identifier: talan
+  tier: warm
+  tags: [it-consulting, smartrecruiters]
+  # A national French IT consultancy (Rennes/Nantes offices among many
+  # others); 480 total postings, 304 France-relevant, incl. a real
+  # "Alternance - Assistant Administration des ventes" in Paris and
+  # substantial Lyon/Paris consulting content.
