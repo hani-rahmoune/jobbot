@@ -240,6 +240,18 @@
   # 37 total, confirmed live (custom domain, not *.talent-soft.com);
   # robots.txt carries no rules (all allowed)
 
+# M14 Part B: found in M12's own search results (sodexo-recrute.talent-soft.com)
+# but never actually added -- straightforward Talentsoft tenant, same shape
+# as Sodebo/MAIF above.
+
+- name: Sodexo France
+  ats: talentsoft
+  identifier: https://sodexo-recrute.talent-soft.com
+  tier: warm
+  tags: [food, facilities, talentsoft]
+  # 533 total, confirmed live: real "Apprenti"/"Alternance" postings.
+  # robots.txt carries no rules (all allowed)
+
 # M9b: sitemap_jsonld -- Phenom People's search widget stays rejected
 # (session/CSRF-bound), but both employers' job pages are reachable this
 # way. Identifier is the sitemap index URL from each site's own robots.txt.
