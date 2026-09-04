@@ -54,6 +54,20 @@ def test_custom_markers_override_the_default_list() -> None:
     assert looks_like_a_job_url(f"{BASE_URL}/job/x", ["/annonce/"]) is False
 
 
+def test_a_blog_url_is_excluded_even_when_it_also_matches_a_job_marker() -> None:
+    # M14 Part C: the exact Accor shape -- a marketing post whose slug
+    # contains "apprenticeship" still lives under /blogs/ and must not be
+    # treated as a job candidate. The deny-list applies by default, without
+    # the caller having to opt in.
+    url = f"{BASE_URL}/blogs/why-apprenticeship-matters"
+    assert looks_like_a_job_url(url, list(DEFAULT_JOB_PATH_MARKERS)) is False
+
+
+def test_the_deny_list_is_overridable_like_the_allow_list() -> None:
+    url = f"{BASE_URL}/blogs/job/1"
+    assert looks_like_a_job_url(url, ["/job/"], non_job_path_markers=[]) is True
+
+
 # --- evenly_spread_sample ----------------------------------------------------
 
 
@@ -142,6 +156,30 @@ def test_discover_job_urls_falls_back_to_sampling_when_nothing_matches(
     assert len(urls) == 2  # neither slug matched anything -- sampling never rejects, see M11 A2
 
 
+def test_a_blog_post_is_excluded_from_discovery_even_if_its_slug_matches(
+    mock_client: httpx.Client,
+) -> None:
+    # The exact Accor bug: a /blogs/ marketing post whose title contains
+    # "apprenticeship" must never reach the candidate set, regardless of
+    # which narrowing layer would otherwise have matched it.
+    discovery = _make_discovery(mock_client, slug_vocabulary=["apprenticeship"])
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/blogs/why-apprenticeship-matters</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/apprenticeship-role/1</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert urls == [f"{BASE_URL}/job/apprenticeship-role/1"]
+
+
 def test_page_cap_truncates_and_logs(
     mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -162,6 +200,107 @@ def test_page_cap_truncates_and_logs(
 
     assert len(urls) == 2
     assert any("hit the 2-page cap on the 'slug_vocabulary' path" in r.message for r in caplog.records)
+
+
+# --- SitemapDiscovery location narrowing (M14 Part C) -----------------------
+
+
+def test_location_narrowing_selects_french_slugs_and_skips_foreign_ones(
+    mock_client: httpx.Client,
+) -> None:
+    discovery = _make_discovery(
+        mock_client, search_terms=["alternance"], locations=["paris", "nantes"]
+    )
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/job/alternance-paris/1</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/alternance-berlin/2</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/alternance-nantes/3</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert urls == [
+        f"{BASE_URL}/job/alternance-paris/1",
+        f"{BASE_URL}/job/alternance-nantes/3",
+    ]
+
+
+def test_zero_location_matches_falls_through_to_the_unrefined_set(
+    mock_client: httpx.Client,
+) -> None:
+    # Some employers (Thales, confirmed live) never put a city in the slug at
+    # all -- location narrowing must never turn "no slug-level location
+    # signal" into "no postings", only skip the refinement.
+    discovery = _make_discovery(
+        mock_client, search_terms=["alternance"], locations=["paris", "nantes"]
+    )
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/job/alternance-data-analyst/1</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/alternance-marketing/2</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert len(urls) == 2
+
+
+def test_no_locations_configured_leaves_existing_behavior_unchanged(
+    mock_client: httpx.Client,
+) -> None:
+    discovery = _make_discovery(mock_client, search_terms=["alternance"])
+    assert discovery.locations == []
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/job/alternance-paris/1</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/alternance-berlin/2</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert len(urls) == 2
+
+
+def test_location_narrowing_also_applies_to_the_slug_vocabulary_layer(
+    mock_client: httpx.Client,
+) -> None:
+    discovery = _make_discovery(
+        mock_client, slug_vocabulary=["intern"], locations=["paris"]
+    )
+    with respx.mock:
+        respx.get(INDEX_URL).mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<urlset>"
+                    f"<url><loc>{BASE_URL}/job/intern-paris/1</loc></url>"
+                    f"<url><loc>{BASE_URL}/job/intern-london/2</loc></url>"
+                    "</urlset>"
+                ),
+            )
+        )
+        urls = discovery.discover_job_urls(INDEX_URL)
+
+    assert urls == [f"{BASE_URL}/job/intern-paris/1"]
 
 
 def test_search_terms_take_priority_over_slug_vocabulary(mock_client: httpx.Client) -> None:

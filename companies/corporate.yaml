@@ -268,6 +268,14 @@
   tags: [aerospace, defense, cac40, sitemap_jsonld]
   # 2635 total job URLs across 6 sub-sitemaps; "alternance" 33, "stage" 12,
   # "internship" 12 (URL-slug matches, before search_terms dedup/fetch)
+  # M14 Part C: location-slug narrowing (filters.yaml's locations.include,
+  # matched against the URL slug before fetching) cut this from 54
+  # search_terms-matched candidates to 6, live-measured 19.7s -> 3.4s. Real
+  # cost, not free: one live-confirmed miss this session -- "ALTERNANCE -
+  # S3NS - Data Engineer" is genuinely in Paris but its slug carries no
+  # place name, so it's now never fetched at all (before, it was fetched
+  # then correctly kept by JobFilter downstream). Accepted tradeoff per the
+  # explicit fallback-not-a-gate design (only protects the zero-match case).
 
 - name: Orange
   ats: sitemap_jsonld
@@ -288,6 +296,15 @@
   tags: [hospitality, sitemap_jsonld]
   # search_terms narrowed to 86 real candidate job URLs (the confirmed live
   # fetch hit the 60-page cap and returned exactly 60 -- see the M9d report)
+  # M14 Part C: this was the poll's critical path (78s of a 95s concurrent
+  # poll, M13 Part D), fetching all 86 search_terms candidates although only
+  # ~43 were ever French. Location-slug narrowing (filters.yaml's
+  # locations.include, matched against the URL slug before fetching) cuts
+  # this to 30 candidates, live-measured 44.8s -> 14.5s for a standalone
+  # fetch. No JobFilter-level recall loss observed this session (0 postings
+  # passed the current keyword filter either way -- Accor is hospitality,
+  # not data/tech -- so this run couldn't have surfaced a false negative
+  # either; see Thales's own note for a real one).
 
 - name: Rexel
   ats: sitemap_jsonld

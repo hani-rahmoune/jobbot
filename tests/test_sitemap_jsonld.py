@@ -376,6 +376,21 @@ def test_no_slug_vocabulary_override_uses_the_default(mock_client: httpx.Client)
     assert source.slug_vocabulary == list(DEFAULT_SLUG_VOCABULARY)
 
 
+# --- locations narrowing passthrough (M14 Part C) ---------------------------
+
+
+def test_no_locations_configured_defaults_to_empty(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client)
+    assert source.locations == []
+
+
+def test_locations_constructor_kwarg_reaches_the_shared_discovery_instance(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(mock_client, locations=["paris", "nantes"])
+    assert source.locations == ["paris", "nantes"]
+
+
 def test_falls_back_to_slug_vocabulary_when_search_terms_matches_nothing(
     mock_client: httpx.Client,
 ) -> None:

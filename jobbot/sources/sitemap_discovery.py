@@ -34,6 +34,29 @@ truncates. Which of the three layers fired, and how many candidates it
 produced, is always logged so a silent "zero postings" is never actually
 silent.
 
+M14 Part C adds a fourth, narrower step layered ON TOP of whichever of the
+above actually matched: `locations` (the user's own filters.yaml
+`locations.include` list, threaded down from run.py the same way
+search_terms is -- CLAUDE.md rule 4, never hardcoded here) is matched
+against the same URL slug. Accor's board was the concrete motivator: 86
+search_terms-matched candidates, of which only 43 were ever French, the
+other 43 fetched (at real per-page cost) only to be discarded downstream by
+JobFilter once their location was known. Matching the location terms
+against the slug BEFORE the fetch, when the slug happens to carry a city
+name, avoids ever fetching the other half. Exactly like the slug vocabulary
+layer, this is a fallback refinement, not a gate: if narrowing by location
+would leave zero candidates, the un-narrowed set is kept instead, since not
+every employer puts a city in the slug (Thales, same problem shape, doesn't).
+See `_refine_by_location()`.
+
+Also M14 Part C: `looks_like_a_job_url()` now takes an optional deny-list
+(`DEFAULT_NON_JOB_PATH_MARKERS`) alongside its existing allow-list --
+Accor's own sitemap listed a `/blogs/` marketing post whose slug happened to
+contain the word "apprenticeship", which every layer above then dutifully
+treated as a real job candidate. A path that's obviously editorial content
+is excluded up front regardless of which allow-list marker also happens to
+match.
+
 See sitemap_jsonld.py's own module docstring for the full M11 Part A
 narrative (the Geodis/Manitou bug this exists to fix) -- not repeated here.
 """
@@ -71,6 +94,14 @@ DEFAULT_JOB_PATH_MARKERS = (
 # strong job-page signal even with no recognizable word in the path at all.
 _NUMERIC_PATH_SEGMENT_RE = re.compile(r"/\d{3,}(?:[/?#-]|$)")
 
+# M14 Part C: structural URL-shape deny-list, the mirror image of
+# DEFAULT_JOB_PATH_MARKERS above and exempt from CLAUDE.md rule 4 for the
+# same reason -- editorial-content path segments a job-board template uses,
+# not a location or keyword preference. Confirmed live necessary for Accor,
+# whose sitemap includes a `/blogs/` marketing post that otherwise matches
+# the slug vocabulary purely because its title contains "apprenticeship".
+DEFAULT_NON_JOB_PATH_MARKERS = ("/blog/", "/blogs/", "/news/", "/press/")
+
 # M11 A1: a slug-relevance vocabulary, deliberately separate from
 # search_terms -- URL structure, not a user search preference, so CLAUDE.md
 # rule 4 exempts it the same way it exempts DEFAULT_JOB_PATH_MARKERS and
@@ -87,8 +118,23 @@ DEFAULT_SAMPLE_SIZE = 40
 _LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.IGNORECASE | re.DOTALL)
 
 
-def looks_like_a_job_url(url: str, job_path_markers: list[str]) -> bool:
+def looks_like_a_job_url(
+    url: str,
+    job_path_markers: list[str],
+    non_job_path_markers: list[str] | None = None,
+) -> bool:
+    """`non_job_path_markers` defaults to DEFAULT_NON_JOB_PATH_MARKERS rather
+    than an empty list -- the Accor /blogs/ bug this exists to fix should
+    stay fixed for every caller, not just ones that opt in. The deny-list
+    always wins: a URL matching both an allow marker and a deny marker
+    (Accor's /blogs/ apprenticeship post matched the slug vocabulary too) is
+    not a job URL.
+    """
+    if non_job_path_markers is None:
+        non_job_path_markers = list(DEFAULT_NON_JOB_PATH_MARKERS)
     lowered = url.lower()
+    if any(marker in lowered for marker in non_job_path_markers):
+        return False
     return (
         any(marker in lowered for marker in job_path_markers)
         or bool(_NUMERIC_PATH_SEGMENT_RE.search(url))
@@ -147,6 +193,8 @@ class SitemapDiscovery:
         search_terms: list[str] | None = None,
         job_path_markers: list[str] | None = None,
         slug_vocabulary: list[str] | None = None,
+        non_job_path_markers: list[str] | None = None,
+        locations: list[str] | None = None,
         sample_size: int = DEFAULT_SAMPLE_SIZE,
         page_cap: int = DEFAULT_PAGE_CAP,
     ) -> None:
@@ -167,6 +215,16 @@ class SitemapDiscovery:
         self.slug_vocabulary = (
             list(slug_vocabulary) if slug_vocabulary is not None else list(DEFAULT_SLUG_VOCABULARY)
         )
+        self.non_job_path_markers = (
+            list(non_job_path_markers)
+            if non_job_path_markers is not None
+            else list(DEFAULT_NON_JOB_PATH_MARKERS)
+        )
+        # M14 Part C: filters.yaml's own locations.include, threaded down
+        # from run.py -- never hardcoded here (CLAUDE.md rule 4). A refinement
+        # applied on top of whichever layer below matches, not a layer of its
+        # own; see _refine_by_location().
+        self.locations = list(locations) if locations is not None else []
         self.sample_size = sample_size
         self.page_cap = page_cap
 
@@ -252,7 +310,11 @@ class SitemapDiscovery:
         for sub_url in sub_sitemaps:
             job_candidate_urls.extend(extract_locs(self.fetch_text(sub_url), sub_url))
 
-        job_urls = [u for u in job_candidate_urls if looks_like_a_job_url(u, self.job_path_markers)]
+        job_urls = [
+            u
+            for u in job_candidate_urls
+            if looks_like_a_job_url(u, self.job_path_markers, self.non_job_path_markers)
+        ]
 
         urls_to_fetch, path_used = self._select_urls_to_fetch(job_urls, sitemap_url)
         logger.info(
@@ -272,22 +334,43 @@ class SitemapDiscovery:
                 u for u in job_urls if any(t in normalize(u) for t in normalized_terms)
             ]
             if matched:
-                return self._apply_page_cap(matched, "search_terms", sitemap_url), "search_terms"
+                return self._finalize_selection(matched, "search_terms", sitemap_url)
 
         vocabulary_matched = [
             u for u in job_urls if any(term in normalize(u) for term in self.slug_vocabulary)
         ]
         if vocabulary_matched:
-            return (
-                self._apply_page_cap(vocabulary_matched, "slug_vocabulary", sitemap_url),
-                "slug_vocabulary",
-            )
+            return self._finalize_selection(vocabulary_matched, "slug_vocabulary", sitemap_url)
 
         # The slug filter is an optimization, never a gate -- neither layer
         # above matching anything is not itself a reason to return zero
-        # postings.
+        # postings. No location refinement here: this is already the
+        # last-resort path, and the sample is small and unfiltered by design.
         sampled = evenly_spread_sample(job_urls, self.sample_size)
         return sampled, "sampled"
+
+    def _finalize_selection(
+        self, matched: list[str], path_name: str, sitemap_url: str
+    ) -> tuple[list[str], str]:
+        """M14 Part C: refines `matched` (whichever of search_terms or
+        slug_vocabulary produced it) by `self.locations` before applying the
+        page cap. A fallback refinement, not a gate, exactly like the layers
+        above it: if narrowing by location leaves nothing, the un-narrowed
+        set is kept, since not every employer's sitemap puts a city in the
+        slug. Narrowing before capping (rather than after) so the cap, when
+        it binds at all, binds on the best-available set."""
+        if self.locations:
+            normalized_locations = [normalize(loc) for loc in self.locations]
+            location_matched = [
+                u for u in matched if any(loc in normalize(u) for loc in normalized_locations)
+            ]
+            if location_matched:
+                refined_path_name = f"{path_name}+location"
+                return (
+                    self._apply_page_cap(location_matched, refined_path_name, sitemap_url),
+                    refined_path_name,
+                )
+        return self._apply_page_cap(matched, path_name, sitemap_url), path_name
 
     def _apply_page_cap(self, urls: list[str], path_name: str, sitemap_url: str) -> list[str]:
         if len(urls) > self.page_cap:

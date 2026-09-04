@@ -99,6 +99,7 @@ class SitemapJsonLdSource(JobSource):
         search_terms: list[str] | None = None,
         job_path_markers: list[str] | None = None,
         slug_vocabulary: list[str] | None = None,
+        locations: list[str] | None = None,
         sample_size: int = DEFAULT_SAMPLE_SIZE,
         page_cap: int = DEFAULT_PAGE_CAP,
     ) -> None:
@@ -118,6 +119,7 @@ class SitemapJsonLdSource(JobSource):
             search_terms=search_terms,
             job_path_markers=job_path_markers,
             slug_vocabulary=slug_vocabulary,
+            locations=locations,
             sample_size=sample_size,
             page_cap=page_cap,
         )
@@ -138,6 +140,10 @@ class SitemapJsonLdSource(JobSource):
     @property
     def slug_vocabulary(self) -> list[str]:
         return self._discovery.slug_vocabulary
+
+    @property
+    def locations(self) -> list[str]:
+        return self._discovery.locations
 
     @property
     def sample_size(self) -> int:

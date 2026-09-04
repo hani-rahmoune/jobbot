@@ -397,6 +397,31 @@ def test_build_source_ignores_search_terms_for_adapters_that_do_not_support_it(
     assert not hasattr(source, "search_terms")
 
 
+def test_build_source_threads_locations_into_sitemap_jsonld(mock_client: httpx.Client) -> None:
+    # M14 Part C: filters.yaml's locations.include, threaded the same way
+    # search_terms is, but only to the location-aware adapters.
+    company = CompanySource(
+        name="Accor", ats="sitemap_jsonld", identifier="https://careers.accor.com/sitemap.xml"
+    )
+    source = build_source(
+        company, mock_client, "jobbot-test/0.1", locations=["paris", "nantes"],
+    )
+    assert source.locations == ["paris", "nantes"]
+
+
+def test_build_source_ignores_locations_for_adapters_that_do_not_support_it(
+    mock_client: httpx.Client,
+) -> None:
+    # A non-location-aware adapter (including other search-capable ones,
+    # e.g. Workday) has no such concept -- passing the kwarg through must not
+    # raise or otherwise leak into an unrelated adapter's construction.
+    source = build_source(
+        _company(), mock_client, "jobbot-test/0.1",
+        locations=["paris"],
+    )
+    assert not hasattr(source, "locations")
+
+
 # --- run() ---------------------------------------------------------------
 
 
@@ -1034,7 +1059,7 @@ def test_a_redirecting_job_url_still_yields_its_posting() -> None:
         )
         respx.get(redirect_target).mock(return_value=httpx.Response(200, json=_minimal_payload(1)))
 
-        outcome = _fetch_one_concurrently(company, "jobbot-test/1.0", None, throttle)
+        outcome = _fetch_one_concurrently(company, "jobbot-test/1.0", None, None, throttle)
 
     assert outcome.build_error is None
     assert outcome.fetch_error is None

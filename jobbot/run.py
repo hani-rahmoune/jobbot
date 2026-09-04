@@ -113,6 +113,16 @@ _SEARCH_CAPABLE_ADAPTERS = (
     SuccessFactorsSource, EightfoldSource,
 )
 
+# M14 Part C: adapter classes whose constructor also accepts a `locations`
+# kwarg -- filters.yaml's own locations.include, threaded through the same
+# way search_terms is, narrowing sitemap_jsonld's candidate URLs to the
+# user's configured locations BEFORE the per-page fetch (Accor: 86
+# search_terms-matched candidates, only 43 ever French). Deliberately a
+# separate, narrower tuple from _SEARCH_CAPABLE_ADAPTERS above -- most
+# search-capable adapters narrow server-side via a query parameter and have
+# no slug to match a location against.
+_LOCATION_AWARE_ADAPTERS = (SitemapJsonLdSource,)
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,6 +196,7 @@ def build_source(
     client: httpx.Client,
     user_agent: str,
     search_terms: list[str] | None = None,
+    locations: list[str] | None = None,
 ) -> JobSource:
     """Maps a company's `ats` string to its adapter class. Raises ValueError
     on an ats with no registered adapter -- config.py's KNOWN_ATS already
@@ -195,7 +206,9 @@ def build_source(
     search_terms (M8b/M9, from settings.yaml's search_terms -- never
     hardcoded here, CLAUDE.md rule 4) is threaded through only to the
     adapters in _SEARCH_CAPABLE_ADAPTERS; every other adapter's constructor
-    has no such concept.
+    has no such concept. locations (M14 Part C, from filters.yaml's
+    locations.include) is threaded the same way, only to
+    _LOCATION_AWARE_ADAPTERS.
     """
     adapters = {cls.name: cls for cls in registered_sources()}
     try:
@@ -206,15 +219,13 @@ def build_source(
             f"registered: {sorted(adapters)}"
         ) from None
 
+    kwargs: dict[str, list[str] | None] = {}
     if adapter_cls in _SEARCH_CAPABLE_ADAPTERS:
-        return adapter_cls(
-            company.identifier,
-            company.name,
-            client,
-            user_agent=user_agent,
-            search_terms=search_terms,
-        )
-    return adapter_cls(company.identifier, company.name, client, user_agent=user_agent)
+        kwargs["search_terms"] = search_terms
+    if adapter_cls in _LOCATION_AWARE_ADAPTERS:
+        kwargs["locations"] = locations
+
+    return adapter_cls(company.identifier, company.name, client, user_agent=user_agent, **kwargs)
 
 
 def fetch_source(
@@ -222,6 +233,7 @@ def fetch_source(
     client: httpx.Client,
     user_agent: str,
     search_terms: list[str] | None,
+    locations: list[str] | None = None,
 ) -> FetchOutcome:
     """The only network-touching step for one company -- build its adapter,
     fetch it -- returned as a plain value object. Safe to call from a worker thread
@@ -229,7 +241,9 @@ def fetch_source(
     the caller must not share with any other concurrent call.
     """
     try:
-        source = build_source(company, client, user_agent, search_terms=search_terms)
+        source = build_source(
+            company, client, user_agent, search_terms=search_terms, locations=locations
+        )
     except ValueError as exc:
         return FetchOutcome(build_error=str(exc))
 
@@ -419,7 +433,11 @@ _PER_HOST_CONCURRENCY_LIMIT = 2
 
 
 def _fetch_one_concurrently(
-    company: CompanySource, user_agent: str, search_terms: list[str] | None, throttle: _HostThrottle
+    company: CompanySource,
+    user_agent: str,
+    search_terms: list[str] | None,
+    locations: list[str] | None,
+    throttle: _HostThrottle,
 ) -> FetchOutcome:
     """Runs inside a worker thread (see ThreadPoolExecutor in run()). Builds
     its own httpx.Client -- never shared across threads or across companies
@@ -433,7 +451,7 @@ def _fetch_one_concurrently(
     # adapter's own parsing then silently reads as "no content here" rather
     # than as a fetch failure. Confirmed live cost: Nexans's entire board.
     with httpx.Client(transport=transport, follow_redirects=True) as client:
-        return fetch_source(company, client, user_agent, search_terms)
+        return fetch_source(company, client, user_agent, search_terms, locations)
 
 
 def run(
@@ -516,7 +534,11 @@ def run(
             outcomes = list(
                 executor.map(
                     lambda company: _fetch_one_concurrently(
-                        company, user_agent, settings.search_terms, throttle
+                        company,
+                        user_agent,
+                        settings.search_terms,
+                        filters_config.locations.include,
+                        throttle,
                     ),
                     companies,
                 )
