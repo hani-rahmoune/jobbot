@@ -36,7 +36,7 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Hermes | talents.hermes.com | — | Unresolved | not RMK/Eightfold (M14 sweep) |
 | Societe Generale | careers.societegenerale.com | — | Unresolved | not RMK/Eightfold (M14 sweep) |
 | Credit Agricole SA | groupecreditagricole.jobs | — | Unresolved | distinct from Credit Agricole CIB (already added, Talentsoft) |
-| Fnac Darty | recrutement.fnacdarty.com | Talentsoft (URL shape matches) | Unresolved | **M11: TLS certificate expired on their end. Re-check needed (M14 Part B4).** |
+| Fnac Darty | recrutement.fnacdarty.com | Talentsoft (URL shape matches) | Unresolved | TLS certificate still expired on their end as of M14 Part B4 (re-checked, same `SEC_E_CERT_EXPIRED`) -- not our bug, retry in a future session |
 | Elior | eliorgroup.com | — | Rejected | not RMK/Eightfold; `elior-coll.profils.org` seen in search results, not yet investigated as its own vendor |
 | Groupe SEB | groupeseb-careers.com | — | Rejected | 404s on robots.txt/sitemap; not RMK/Eightfold |
 | Covea | recrutement.covea.com | Cornerstone OnDemand (`covea.csod.com`) | Rejected | different vendor than RMK/Eightfold, not investigated further |
@@ -50,19 +50,21 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | BPCE | recrutement.bpce.fr | — | Unresolved | not RMK/Eightfold |
 | Natixis | recrutement.natixis.com | — | Unresolved | not RMK/Eightfold |
 | Groupama | groupama-gan-recrute.com | — | Unresolved | not RMK/Eightfold |
-| Bouygues | not resolved | — | Unresolved | no single clean careers domain found as of M13; group has multiple entity-specific sites (Bouygues Construction, Bouygues Telecom on `*.talent-soft.com`, Equans) |
-| Vinci | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
+| Bouygues Construction | careers.bouygues-construction.com | SuccessFactors RMK | Added (M14) | one entity within Bouygues Group; sitemap mode, real French Alternance/Stage/Apprenti content |
+| Bouygues Telecom | bouyguestelecom-recrute.talent-soft.com | Talentsoft (URL shape, unverified) | Unresolved | domain no longer resolves (DNS failure, M14) -- was a stale web-search result, not re-found |
+| Bouygues (group / Immobilier / Equans) | not resolved | — | Unresolved | no single group-wide domain; only Construction resolved so far |
+| Vinci | emplois.vinci.com, jobs.vinci.com both checked | — | Unresolved | neither is RMK/Eightfold (M14); emplois.vinci.com failed to connect this session (worth a retry); subsidiaries (VINCI Autoroutes, VINCI Energies) have their own separate domains, not investigated |
 | Suez | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
 | Intermarche | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
-| Accenture France | not resolved | — | Unresolved | no single clean careers domain found as of M13 |
-| Air France | not resolved | — | Unresolved | not yet attempted |
-| Engie France | not resolved | — | Unresolved | not yet attempted |
-| Sodexo France | sodexo-recrute.talent-soft.com | Talentsoft | **Should be added** | found in M12's search sweep, never actually added to config -- straightforward Talentsoft tenant like Sodebo/MAIF |
-| OVHcloud | not resolved | — | Unresolved | not yet attempted |
+| Accenture France | not resolved | — | Unresolved | jobs.accenture.com is the only lead so far, not yet checked (global site, likely not France-specific) |
+| Air France | airfrance-recrute.talent-soft.com | Talentsoft | Added (M14) | search_terms narrowed to 11 real "Stage" postings |
+| Engie | jobs.engie.com | SuccessFactors RMK | Added (M14) | sitemap mode, hit the 150-page cap (164 real candidates), real French "ALTERNANCE" content via its GRDF subsidiary |
+| Sodexo France | sodexo-recrute.talent-soft.com | Talentsoft | Added (M14 Part B1) | found in M12's search sweep, never actually added until now |
+| OVHcloud | careers.ovhcloud.com | — | Unresolved | ATS not identified, not yet checked |
 | Doctolib | not resolved | — | Unresolved | not yet attempted |
 | Blablacar | not resolved | — | Unresolved | not yet attempted |
-| Mirakl | not resolved | — | Unresolved | not yet attempted |
-| Contentsquare | not resolved | — | Unresolved | not yet attempted |
+| Mirakl | job-boards.greenhouse.io/mirakl | Greenhouse | Added (M14) | 14 real postings, confirmed live. A second board, "miraklfr", exists but is empty (0 jobs) -- do not use it |
+| Contentsquare | jobs.lever.co/contentsquare | Lever | Added (M14) | 31 real postings, confirmed live |
 | Auchan | www.auchan-recrute.fr | — | Unresolved | platform not identified as of M11 |
 
 Vendors already confirmed NOT to match, so a future session doesn't re-probe

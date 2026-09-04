@@ -338,6 +338,34 @@
   tier: warm
   tags: [cloud, tech, lever]
 
+# M14 Part B2/B3: resolved via web search + live verification, both already-
+# supported ATSs -- no adapter code needed.
+
+- name: Contentsquare
+  ats: lever
+  identifier: contentsquare
+  tier: warm
+  tags: [tech, analytics, lever]
+  # 31 total, confirmed live, real Paris-area postings.
+
+- name: Mirakl
+  ats: greenhouse
+  identifier: mirakl
+  tier: warm
+  tags: [tech, marketplace, greenhouse]
+  # 14 total, confirmed live: "Apprenticeship - Communication & Employer
+  # Brand (12 months)", Paris. Note: a second, French-suffixed board token
+  # ("miraklfr") also exists but is empty (0 jobs) -- the real content is
+  # on the plain "mirakl" token.
+
+- name: Air France
+  ats: talentsoft
+  identifier: https://airfrance-recrute.talent-soft.com
+  tier: warm
+  tags: [aviation, talentsoft]
+  # search_terms narrowed to 11 real "Stage" postings, confirmed live, all
+  # correctly classified. robots.txt carries no rules (all allowed).
+
 # M12 Part B: Danone (careers.danone.com) is NOT SAP SuccessFactors, despite
 # an earlier session's identification. Its job pages link straight to
 # https://frapply-danone.icims.com/jobs/{id}/login -- the id matches the
@@ -456,6 +484,28 @@
   tags: [pharma, successfactors]
   # slug_vocabulary path hit the 150-page cap (259 real candidates matched,
   # by far the largest of this sweep) -- confirmed live.
+
+# M14 Part B3: found while resolving the remaining domains -- both confirmed
+# SuccessFactors RMK via discovery/probe_vendor.py, live-verified.
+
+- name: Engie
+  ats: successfactors
+  identifier: https://jobs.engie.com/sitemap.xml
+  tier: warm
+  tags: [energy, successfactors]
+  # slug_vocabulary path hit the 150-page cap (164 real candidates matched)
+  # -- confirmed live, real French "ALTERNANCE" postings (GRDF subsidiary).
+
+- name: Bouygues Construction
+  ats: successfactors
+  identifier: https://careers.bouygues-construction.com/sitemap.xml
+  tier: warm
+  tags: [construction, successfactors]
+  # slug_vocabulary path matched 64 of 376; confirmed live, real French
+  # "Alternance"/"Stage" postings. Note: this is one entity within the
+  # wider Bouygues Group (which also includes Bouygues Telecom, on
+  # Talentsoft, and Bouygues Immobilier/Equans, not yet resolved) -- not
+  # the whole group's board.
 
 # M13 Part A: RSS-mode tenants, confirmed live via the adapter's new second
 # discovery mode. Both feeds are the FULL board, not narrowed by
