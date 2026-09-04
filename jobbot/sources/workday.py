@@ -86,6 +86,32 @@ isn't something a user could reasonably maintain in config. `searchText`
 is a plain string; it needs none of that and behaves identically on every
 tenant.
 
+M18 Part A revisits this specifically for LOCATION, where the tradeoff is
+different: Accenture France's board is genuinely global (40,000+ Indian
+postings alone), so `searchText` narrowing still has to paginate through
+every non-French match with that word in its title before finding the
+handful that are actually French -- confirmed live at 87s, this project's
+single slowest source, ahead of even a real browser render. Investigated
+live (POST an empty `appliedFacets`, read the response's own `facets`
+array): every Workday tenant exposes a `locationCountry` facet under
+`locationMainGroup`, and each country's `id` is exactly the kind of
+opaque tenant-specific hash the workerSubType investigation already
+flagged (Accenture's own France id: a 32-character hex string, unrelated
+to any other tenant's). Applied as `appliedFacets: {"locationCountry":
+[id]}` in the request body, confirmed live to narrow Accenture's total
+correctly (India's 40,000+ down to France's own reported count).
+
+Unlike workerSubType, this is still worth supporting: the opaque id only
+has to be found ONCE per tenant, by hand, during onboarding -- the same
+one-time cost this project already pays for the tenant/wd-number/site
+triple in every Workday identifier. It's optional and per-company,
+carried in the identifier's own `|{facet_param}={facet_value_id}` suffix
+(e.g. "accenture.wd103.AccentureCareers|locationCountry=54c5b6971ffb4b
+f0b116fe7651ec789a") rather than a new CompanySource config field, so a
+tenant that doesn't need it is completely unaffected -- `_applied_facets`
+defaults to `{}`, and `{"appliedFacets": {}, ...}` is exactly what every
+existing tenant's request body already sent.
+
 `search_terms` (populated from settings.yaml's `workday_search_terms` --
 CLAUDE.md rule 4 means no literal term is ever hardcoded here) runs one
 query per term, deduplicated by `externalPath` across terms, instead of one
@@ -147,6 +173,22 @@ def _location_from_bullet_fields(bullet_fields: object) -> str:
     return ""
 
 
+def _parse_facet_suffix(suffix: str) -> dict[str, list[str]]:
+    """M18 Part A. `suffix` is the identifier's own optional `|`-separated
+    tail, e.g. "locationCountry=54c5b6971ffb4bf0b116fe7651ec789a" -- a
+    single facet parameter and value id, found by hand once per tenant (see
+    the module docstring). Returns the `appliedFacets` shape the real API
+    expects: `{facet_param: [facet_value_id]}`."""
+    facet_param, sep, facet_value_id = suffix.partition("=")
+    if not sep or not facet_param or not facet_value_id:
+        raise ValueError(
+            f"workday: identifier's facet suffix must be "
+            f"'{{facet_param}}={{facet_value_id}}' (e.g. "
+            f"'locationCountry=54c5b6971ffb4bf0b116fe7651ec789a'), got {suffix!r}"
+        )
+    return {facet_param: [facet_value_id]}
+
+
 class WorkdaySource(JobSource):
     name = "workday"
     tier = 1
@@ -161,13 +203,16 @@ class WorkdaySource(JobSource):
         max_postings: int = DEFAULT_MAX_POSTINGS,
         search_terms: list[str] | None = None,
     ) -> None:
-        match = _IDENTIFIER_RE.match(identifier)
+        base_identifier, _, facet_suffix = identifier.partition("|")
+        match = _IDENTIFIER_RE.match(base_identifier)
         if not match:
             raise ValueError(
-                f"workday: identifier must be '{{tenant}}.wd{{N}}.{{site}}' "
+                f"workday: identifier must be '{{tenant}}.wd{{N}}.{{site}}', "
+                f"optionally followed by '|{{facet_param}}={{facet_value_id}}' "
                 f"(e.g. 'sanofi.wd3.SanofiCareers'), got {identifier!r}"
             )
         self._tenant, self._wd_number, self._site = match.groups()
+        self._applied_facets = _parse_facet_suffix(facet_suffix) if facet_suffix else {}
         super().__init__(identifier, company_name, client, user_agent)
         self.max_postings = max_postings
         # Config, not code (CLAUDE.md rule 4) -- see settings.yaml's
@@ -297,7 +342,7 @@ class WorkdaySource(JobSource):
         other adapter follows -- applied per page, since a mid-pagination
         blip shouldn't discard pages already fetched."""
         body = {
-            "appliedFacets": {},
+            "appliedFacets": self._applied_facets,
             "limit": PAGE_SIZE,
             "offset": offset,
             "searchText": search_text,

@@ -67,6 +67,65 @@ def test_invalid_identifier_raises_value_error(mock_client: httpx.Client, bad_id
         _make_source(mock_client, identifier=bad_identifier)
 
 
+# --- location faceting (M18 Part A) -------------------------------------
+
+
+def test_no_facet_suffix_defaults_to_empty_applied_facets(mock_client: httpx.Client) -> None:
+    source = _make_source(mock_client, identifier="sanofi.wd3.SanofiCareers")
+    assert source._applied_facets == {}
+
+
+def test_facet_suffix_parses_into_applied_facets(mock_client: httpx.Client) -> None:
+    source = _make_source(
+        mock_client,
+        identifier="accenture.wd103.AccentureCareers|locationCountry=54c5b6971ffb4bf0b116fe7651ec789a",
+    )
+    assert source._tenant == "accenture"
+    assert source._wd_number == "103"
+    assert source._site == "AccentureCareers"
+    assert source._applied_facets == {"locationCountry": ["54c5b6971ffb4bf0b116fe7651ec789a"]}
+
+
+@pytest.mark.parametrize(
+    "bad_suffix",
+    [
+        "locationCountry",  # no "="
+        "=54c5b6971ffb4bf0b116fe7651ec789a",  # empty facet param
+        "locationCountry=",  # empty facet value id
+    ],
+)
+def test_invalid_facet_suffix_raises_value_error(mock_client: httpx.Client, bad_suffix: str) -> None:
+    with pytest.raises(ValueError):
+        _make_source(mock_client, identifier=f"sanofi.wd3.SanofiCareers|{bad_suffix}")
+
+
+def test_fetch_sends_the_configured_applied_facets_in_the_request_body(
+    mock_client: httpx.Client,
+) -> None:
+    source = _make_source(
+        mock_client,
+        identifier="accenture.wd103.AccentureCareers|locationCountry=54c5b6971ffb4bf0b116fe7651ec789a",
+    )
+    url = "https://accenture.wd103.myworkdayjobs.com/wday/cxs/accenture/AccentureCareers/jobs"
+    with respx.mock:
+        route = respx.post(url).mock(return_value=httpx.Response(200, json={"jobPostings": []}))
+        source.fetch_raw()
+
+    sent_body = json.loads(route.calls[0].request.content)
+    assert sent_body["appliedFacets"] == {"locationCountry": ["54c5b6971ffb4bf0b116fe7651ec789a"]}
+
+
+def test_fetch_sends_empty_applied_facets_when_none_configured(
+    workday_source: WorkdaySource,
+) -> None:
+    with respx.mock:
+        route = respx.post(BOARD_URL).mock(return_value=httpx.Response(200, json={"jobPostings": []}))
+        workday_source.fetch_raw()
+
+    sent_body = json.loads(route.calls[0].request.content)
+    assert sent_body["appliedFacets"] == {}
+
+
 # --- parse() -----------------------------------------------------------
 
 

@@ -677,7 +677,7 @@
 
 - name: Accenture France
   ats: workday
-  identifier: accenture.wd103.AccentureCareers
+  identifier: accenture.wd103.AccentureCareers|locationCountry=54c5b6971ffb4bf0b116fe7651ec789a
   tier: warm
   tags: [consulting, it-services, workday]
   # Found via accenture.com/fr-fr/careers/jobsearch's own link to
@@ -688,6 +688,22 @@
   # here: this tenant has no `locationsText` field at all, only
   # `bulletFields` ([requisition_id, location]) -- see the module's own
   # comment on _location_from_bullet_fields().
+  #
+  # M18 Part A: this was the poll's single slowest source at 87s -- a
+  # global board narrowed by keyword only, paginating thousands of
+  # non-French matches (India alone: 40,000+) to surface a handful in
+  # France, and hitting the 30-page cap on "stage" in the process (real
+  # French candidates past that cap were being silently missed, not just
+  # slow to reach). The identifier's own `|locationCountry={id}` suffix
+  # applies Workday's real `appliedFacets` location filter server-side --
+  # see jobbot/sources/workday.py's module docstring for how the facet id
+  # was found and why it's safe to hardcode PER TENANT (a one-time,
+  # opaque, unguessable hash, not a user search term). Live re-timed:
+  # 86.0s -> 27.5s, zero recall loss or gain checked via the real
+  # JobFilter against both result sets (0 postings passed either way --
+  # the current keyword filter doesn't match Accenture's board at all,
+  # so this run couldn't surface a difference either way), and the
+  # "stage" page cap no longer binds at all.
 
 - name: Doctolib
   ats: greenhouse
