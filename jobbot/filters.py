@@ -42,11 +42,42 @@ class FilterConfigError(Exception):
     """Raised when filters.yaml is missing, malformed, or fails validation."""
 
 
+class LocationOverride(BaseModel):
+    """A per-contract-type override of specific `locations` fields (M19 Part
+    A). Any field left unset (None) inherits the base `LocationFilterConfig`
+    value for that field -- this is what lets, say, apprenticeship widen
+    `include` to a nationwide city list while inheriting `match_mode` and
+    `unknown_location` unchanged, and lets it clear an inherited `exclude`
+    explicitly with `exclude: []` rather than being stuck with exclusions
+    that made sense for the narrower default scope but not this one."""
+
+    include: list[str] | None = Field(default=None, min_length=1)
+    exclude: list[str] | None = None
+    match_mode: MatchMode | None = None
+    unknown_location: UnknownLocationPolicy | None = None
+
+
 class LocationFilterConfig(BaseModel):
     include: list[str] = Field(min_length=1)
     exclude: list[str] = Field(default_factory=list)
     match_mode: MatchMode = "substring"
     unknown_location: UnknownLocationPolicy = "keep"
+    # Per-contract-type overrides (M19 Part A). Empty by default, which is
+    # exactly what makes an old-style filters.yaml with no `by_contract_type`
+    # key behave identically to before: every contract type falls through to
+    # the fields above, unscoped, same as it always has.
+    by_contract_type: dict[str, LocationOverride] = Field(default_factory=dict)
+
+    @field_validator("by_contract_type")
+    @classmethod
+    def _by_contract_type_known(cls, value: dict[str, LocationOverride]) -> dict[str, LocationOverride]:
+        unknown = [c for c in value if c not in _KNOWN_CONTRACT_TYPES]
+        if unknown:
+            raise ValueError(
+                f"unknown contract_type(s) {unknown} in locations.by_contract_type; "
+                f"known: {sorted(_KNOWN_CONTRACT_TYPES)}"
+            )
+        return value
 
 
 class KeywordFilterConfig(BaseModel):
@@ -120,6 +151,38 @@ def _any_term_matches(haystack: str, terms: list[str], mode: MatchMode) -> bool:
     return any(_term_matches(haystack, term, mode) for term in terms)
 
 
+@dataclass(frozen=True)
+class _EffectiveLocation:
+    """The location rule that actually applies to one job, after resolving
+    any `by_contract_type` override against the base `locations` config."""
+
+    include: list[str]
+    exclude: list[str]
+    match_mode: MatchMode
+    unknown_location: UnknownLocationPolicy
+
+
+def _effective_location(locations: LocationFilterConfig, contract_type: str) -> _EffectiveLocation:
+    override = locations.by_contract_type.get(contract_type)
+    if override is None:
+        return _EffectiveLocation(
+            include=locations.include,
+            exclude=locations.exclude,
+            match_mode=locations.match_mode,
+            unknown_location=locations.unknown_location,
+        )
+    return _EffectiveLocation(
+        include=override.include if override.include is not None else locations.include,
+        exclude=override.exclude if override.exclude is not None else locations.exclude,
+        match_mode=override.match_mode if override.match_mode is not None else locations.match_mode,
+        unknown_location=(
+            override.unknown_location
+            if override.unknown_location is not None
+            else locations.unknown_location
+        ),
+    )
+
+
 class JobFilter:
     def __init__(self, config: FilterConfig) -> None:
         self.config = config
@@ -129,17 +192,20 @@ class JobFilter:
         if job.contract_type not in self.config.contract_types:
             return FilterResult(passed=False, reason="contract_type", matched_keywords=[])
 
-        # 2. location: exclude, then include. Skipped entirely (neither
-        # excluded nor required-to-be-included) when location is empty and
+        # 2. location: exclude, then include, using whichever rule applies to
+        # THIS job's contract_type (the base `locations` config, or its
+        # `by_contract_type` override when one is configured -- see
+        # _effective_location). Skipped entirely (neither excluded nor
+        # required-to-be-included) when location is empty and
         # unknown_location is "keep"; "drop" fails it outright instead.
+        loc_cfg = _effective_location(self.config.locations, job.contract_type)
         location = normalize(job.location)
         if not location:
-            if self.config.locations.unknown_location == "drop":
+            if loc_cfg.unknown_location == "drop":
                 return FilterResult(
                     passed=False, reason="location_not_included", matched_keywords=[]
                 )
         else:
-            loc_cfg = self.config.locations
             if _any_term_matches(location, loc_cfg.exclude, loc_cfg.match_mode):
                 return FilterResult(passed=False, reason="location_excluded", matched_keywords=[])
             if not _any_term_matches(location, loc_cfg.include, loc_cfg.match_mode):

@@ -4,11 +4,157 @@
 # test_no_hardcoded_search_terms).
 
 locations:
+  # Stage/internship (a few months, often barely paid, so proximity
+  # matters) uses this base scope, completely unscoped -- unchanged since
+  # before M19. It stays exactly this narrow: Paris, Ile-de-France, Nantes
+  # and nearby.
   include: [paris, ile-de-france, "75", "92", "93", "94", nantes, "44",
             loire-atlantique, remote, teletravail, hybride]
   exclude: [lyon, marseille, bordeaux, toulouse]
   match_mode: substring        # substring | word
   unknown_location: keep       # keep | drop, applies when location is ""
+  # M19 Part A/B: apprenticeship (a year-plus contract with a salary) is
+  # worth relocating for, so its own scope widens to every major French
+  # city and region below via this override -- internship above is
+  # completely unaffected, since it has no entry here and falls through to
+  # the base fields unscoped. Accent variants are NOT written out
+  # separately (normalize() strips them from both sides of every
+  # comparison automatically); hyphen-vs-space slug variants ARE, since
+  # normalize() does not touch hyphens and French postings write compound
+  # city/region names both ways.
+  by_contract_type:
+    apprenticeship:
+      include:
+        - paris
+        - ile-de-france
+        - "75"
+        - "92"
+        - "93"
+        - "94"
+        - nantes
+        - "44"
+        - loire-atlantique
+        - remote
+        - teletravail
+        - hybride
+        - lyon
+        - "69"
+        - grenoble
+        - "38"
+        - lille
+        - "59"
+        - toulouse
+        - "31"
+        - bordeaux
+        - "33"
+        - marseille
+        - "13"
+        - aix-en-provence
+        - aix en provence
+        - nice
+        - "06"
+        - sophia antipolis
+        - sophia-antipolis
+        - sophia
+        - montpellier
+        - "34"
+        - strasbourg
+        - "67"
+        - rennes
+        - "35"
+        - angers
+        - "49"
+        - le mans
+        - le-mans
+        - "72"
+        - tours
+        - "37"
+        - orleans
+        - "45"
+        - rouen
+        - "76"
+        - le havre
+        - le-havre
+        - caen
+        - "14"
+        - brest
+        - "29"
+        - clermont-ferrand
+        - clermont ferrand
+        - "63"
+        - dijon
+        - "21"
+        - besancon
+        - "25"
+        - metz
+        - "57"
+        - nancy
+        - "54"
+        - reims
+        - "51"
+        - amiens
+        - "80"
+        - poitiers
+        - "86"
+        - limoges
+        - "87"
+        - pau
+        - "64"
+        - bayonne
+        - toulon
+        - "83"
+        - avignon
+        - "84"
+        - valence
+        - "26"
+        - annecy
+        - "74"
+        - chambery
+        - "73"
+        - saint-etienne
+        - saint etienne
+        - "42"
+        - mulhouse
+        - "68"
+        - troyes
+        - "10"
+        - belfort
+        - "90"
+        - compiegne
+        - "60"
+        - cergy
+        - "95"
+        - evry
+        - "91"
+        - versailles
+        - "78"
+        - saclay
+        - villeurbanne
+        - grenoble-alpes
+        - grenoble alpes
+        - toulouse-blagnac
+        - toulouse blagnac
+        - auvergne-rhone-alpes
+        - auvergne rhone alpes
+        - occitanie
+        - nouvelle-aquitaine
+        - nouvelle aquitaine
+        - hauts-de-france
+        - hauts de france
+        - grand est
+        - paca
+        - pays de la loire
+        - pays-de-la-loire
+        - bretagne
+        - normandie
+        - centre-val de loire
+        - centre val de loire
+        - bourgogne-franche-comte
+        - bourgogne franche comte
+      # Lyon/Marseille/Bordeaux/Toulouse are excluded above for internship
+      # (too far for a few months); apprenticeship wants them back, and
+      # nothing else was ever excluded, so clear it rather than inherit.
+      exclude: []
 
 contract_types: [internship, apprenticeship]
 
@@ -18,7 +164,37 @@ keywords:
             intelligence artificielle, business intelligence,data, donnees, analyste, statistiques, statistique,
             machine learning, deep learning, ia, ai, llm, nlp, analytics,
             python, sql, data science, data engineer, mlops,
-            computer vision, decisionnel, bi, big data]
+            computer vision, decisionnel, bi, big data,
+            # Computational chemistry (M19 Part C). French and English
+            # mixed freely, both spelling variants of US/UK terms kept,
+            # French field-name spelling is genuinely inconsistent across
+            # postings (chemoinformatique/cheminformatique/chimioinformatique
+            # all seen in the wild) so all three are kept rather than
+            # guessing at one "correct" spelling.
+            chimie computationnelle, chimie theorique, chimie quantique,
+            modelisation moleculaire, dynamique moleculaire, docking moleculaire,
+            chemoinformatique, cheminformatique, chimioinformatique,
+            computational chemistry, quantum chemistry, theoretical chemistry,
+            molecular modeling, molecular modelling, molecular dynamics,
+            molecular docking, cheminformatics, chemoinformatics,
+            dft, density functional theory, ab initio, qsar, qspr,
+            drug design, computer-aided drug design, computer aided drug design, cadd,
+            virtual screening, free energy perturbation,
+            materials informatics, computational materials, in silico,
+            rdkit, schrodinger, vasp, gromacs, autodock, open babel, pyscf,
+            quantum espresso, lammps, cp2k,
+            molecular representation learning, graph neural network chemistry]
+  # Deliberately left OUT of the list above (see M19 Part C report): gaussian,
+  # orca, force field, monte carlo simulation. All four are common terms of
+  # art far outside computational chemistry too -- Gaussian distributions/
+  # processes/blur pervade the ML and statistics postings this same list
+  # already targets, ORCA is the animal and assorted unrelated products,
+  # "force field" is ordinary physics vocabulary, and Monte Carlo simulation
+  # is standard technique across finance, actuarial work, and general
+  # engineering reliability analysis. The keyword engine has no per-term
+  # co-occurrence/AND condition to require chemistry context alongside them,
+  # so rather than build that (out of scope this milestone) or flood the
+  # feed, they're left out.
   exclude: [sales, commercial, vente, recrutement, recruiting, recruiter,
             talent, account executive, customer success, marketing]
   match_mode: word             # word | substring

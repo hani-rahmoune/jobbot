@@ -11,6 +11,7 @@ from jobbot.filters import (
     JobFilter,
     KeywordFilterConfig,
     LocationFilterConfig,
+    LocationOverride,
     load_filters,
 )
 from jobbot.models import Job
@@ -389,6 +390,161 @@ def test_matched_keywords_is_in_config_order_not_job_order() -> None:
     result = JobFilter(config).matches(job)
     assert result.passed is True
     assert result.matched_keywords == ["python", "sql", "data"]
+
+
+# --- per-contract-type location overrides (M19 Part A) ---------------------
+
+
+@pytest.fixture
+def scoped_location_config() -> FilterConfig:
+    """Mirrors the M19 shape: internship keeps the narrow scope unscoped (the
+    base `locations` fields), apprenticeship gets a wider `include` via a
+    `by_contract_type` override plus a cleared `exclude`, since a city
+    excluded by default is exactly what the wider scope wants back."""
+    return FilterConfig(
+        locations=LocationFilterConfig(
+            include=["paris", "ile-de-france", "nantes"],
+            exclude=["lyon"],
+            by_contract_type={
+                "apprenticeship": LocationOverride(
+                    include=["paris", "ile-de-france", "nantes", "lyon"],
+                    exclude=[],
+                ),
+            },
+        ),
+        contract_types=["internship", "apprenticeship"],
+        keywords=KeywordFilterConfig(include=[]),
+    )
+
+
+def test_apprenticeship_matches_wide_scope_city_via_override(
+    scoped_location_config: FilterConfig,
+) -> None:
+    job = _make_job(location="Lyon, France", contract_type="apprenticeship")
+    result = JobFilter(scoped_location_config).matches(job)
+    assert result.passed is True
+
+
+def test_internship_does_not_match_the_same_wide_scope_city(
+    scoped_location_config: FilterConfig,
+) -> None:
+    job = _make_job(location="Lyon, France", contract_type="internship")
+    result = JobFilter(scoped_location_config).matches(job)
+    assert result.passed is False
+    # Still excluded: internship has no override, so it falls through to the
+    # base locations config, which still excludes lyon.
+    assert result.reason == "location_excluded"
+
+
+def test_shared_scope_city_matches_both_contract_types(
+    scoped_location_config: FilterConfig,
+) -> None:
+    for contract_type in ("internship", "apprenticeship"):
+        job = _make_job(location="Paris", contract_type=contract_type)
+        result = JobFilter(scoped_location_config).matches(job)
+        assert result.passed is True, contract_type
+
+
+def test_old_style_config_with_no_by_contract_type_is_unaffected() -> None:
+    """Same shape as every pre-M19 filters.yaml: locations has no
+    by_contract_type key at all. Every contract type must fall through to
+    the base fields exactly as it always has -- this is the backward
+    compatibility guarantee itself, not just an example of it."""
+    config = FilterConfig(
+        locations=LocationFilterConfig(include=["paris"], exclude=["lyon"]),
+        contract_types=["internship", "apprenticeship"],
+        keywords=KeywordFilterConfig(include=[]),
+    )
+    assert config.locations.by_contract_type == {}
+
+    jf = JobFilter(config)
+    for contract_type in ("internship", "apprenticeship"):
+        paris_job = _make_job(location="Paris", contract_type=contract_type)
+        lyon_job = _make_job(location="Lyon", contract_type=contract_type)
+        assert jf.matches(paris_job).passed is True, contract_type
+        assert jf.matches(lyon_job).passed is False, contract_type
+
+
+def test_by_contract_type_unknown_key_raises(tmp_path: Path) -> None:
+    file = _write_yaml(
+        tmp_path / "filters.yaml",
+        """
+locations:
+  include: [paris]
+  by_contract_type:
+    intership:
+      include: [lyon]
+contract_types: [internship]
+keywords: {}
+""",
+    )
+    with pytest.raises(FilterConfigError):
+        load_filters(file)
+
+
+def test_location_override_empty_include_raises(tmp_path: Path) -> None:
+    file = _write_yaml(
+        tmp_path / "filters.yaml",
+        """
+locations:
+  include: [paris]
+  by_contract_type:
+    apprenticeship:
+      include: []
+contract_types: [internship, apprenticeship]
+keywords: {}
+""",
+    )
+    with pytest.raises(FilterConfigError):
+        load_filters(file)
+
+
+def test_location_override_empty_exclude_is_legal(tmp_path: Path) -> None:
+    file = _write_yaml(
+        tmp_path / "filters.yaml",
+        """
+locations:
+  include: [paris]
+  exclude: [lyon]
+  by_contract_type:
+    apprenticeship:
+      exclude: []
+contract_types: [internship, apprenticeship]
+keywords: {}
+""",
+    )
+    config = load_filters(file)
+    assert config.locations.by_contract_type["apprenticeship"].exclude == []
+
+
+def test_location_override_partial_fields_inherit_the_rest(tmp_path: Path) -> None:
+    # match_mode/unknown_location left unset in the override -> inherited
+    # from the base config; only include is actually overridden here.
+    file = _write_yaml(
+        tmp_path / "filters.yaml",
+        """
+locations:
+  include: [paris]
+  exclude: [lyon]
+  match_mode: word
+  unknown_location: drop
+  by_contract_type:
+    apprenticeship:
+      include: [paris, lyon]
+contract_types: [internship, apprenticeship]
+keywords: {}
+""",
+    )
+    config = load_filters(file)
+    override = config.locations.by_contract_type["apprenticeship"]
+    assert override.match_mode is None
+    assert override.unknown_location is None
+
+    # unknown_location: drop is inherited (not overridden) and still applies.
+    job_no_location = _make_job(location="", contract_type="apprenticeship")
+    result = JobFilter(config).matches(job_no_location)
+    assert result.passed is False
+    assert result.reason == "location_not_included"
 
 
 # --- THE PORTABILITY TEST, load bearing ------------------------------------
