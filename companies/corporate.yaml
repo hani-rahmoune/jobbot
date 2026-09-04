@@ -724,3 +724,113 @@
   # Credit Agricole's asset-management subsidiary. 23 real search_terms-
   # matched candidates, all Paris (75015), incl. "Stage - Carbon
   # Integration Analyst" and "Stage - Inside Sales - Data-as-a-Service".
+
+# M17 Part B: automotive, aerospace, transport, logistics. Full cascade
+# (probe_ats.py, probe_vendor.py, manual navigation) run against every
+# company named; see discovery/resolved_domains.md's M17 Part B section
+# for the complete table, including every rejection and why.
+
+- name: Trigo
+  ats: smartrecruiters
+  identifier: trigo
+  tier: warm
+  tags: [automotive, quality-control, smartrecruiters]
+  # 158 total postings; 2 real French candidates (Toulouse-based quality
+  # inspector roles) confirmed live via search_terms.
+
+- name: Segula Technologies
+  ats: smartrecruiters
+  identifier: segulatechnologies
+  tier: warm
+  tags: [automotive, aerospace, engineering-services, smartrecruiters]
+  # Only 1 current posting ("Dessinateur-projeteur REVIT Autocad", Paris)
+  # -- thin but real, added per the Silvr/Cardiologs precedent.
+
+- name: Alten
+  ats: smartrecruiters
+  identifier: alten
+  tier: warm
+  tags: [engineering-services, consulting, smartrecruiters]
+  # 1123 total postings (a huge global board); 32 search_terms-matched, 23
+  # France-relevant, incl. real "Alternant Ingenieur Charge d'Affaires
+  # Electricite" in Saint-Nazaire.
+
+- name: Valeo
+  ats: workday
+  identifier: valeo.wd3.valeo_jobs
+  tier: warm
+  tags: [automotive, supplier, workday]
+  # Found via a direct web search hit (valeo.wd3.myworkdayjobs.com). 310
+  # real search_terms-matched candidates, all apprenticeship postings
+  # across many real French sites (Nogent-le-Rotrou, Etaples, Annemasse).
+
+- name: Dassault Aviation
+  ats: talentsoft
+  identifier: https://dassault-aviation-cand.talent-soft.com
+  tier: warm
+  tags: [aerospace, defense, talentsoft]
+  # 3 real search_terms-matched candidates, incl. a real "Apprenti/e
+  # Formation en Direction Operationnelle" (Saint-Cloud) and a "Stage de
+  # content manager" (Merignac).
+
+- name: Aeroports de Paris
+  ats: talentsoft
+  identifier: https://groupeadp-recrute.talent-soft.com
+  tier: warm
+  tags: [transport, aviation, state-owned, talentsoft]
+  # 7 real search_terms-matched candidates, real Alternance/Stage postings.
+
+- name: CMA CGM
+  ats: successfactors
+  identifier: https://jobs.cmacgm-group.com/sitemap.xml
+  tier: warm
+  tags: [logistics, shipping, successfactors]
+  # Confirmed SuccessFactors RMK via discovery/probe_vendor.py. 19 real
+  # search_terms-matched candidates, incl. real Marseille and Paris
+  # postings and a real Guadeloupe (Baie Mahault) apprenticeship.
+
+- name: SNCF
+  ats: sitemap_jsonld
+  identifier: https://emploi.sncf.com/sitemap-jobs.xml
+  tier: hot
+  tags: [transport, rail, state-owned, sitemap_jsonld]
+  # A dedicated jobs sitemap declared in robots.txt (separate from the
+  # site-wide one). 40 real search_terms-matched candidates across many
+  # real French locations and trades (electricians, track technicians,
+  # geotechnical experts).
+
+- name: Geodis
+  ats: talentsoft
+  identifier: https://injob.geodis.com
+  tier: warm
+  tags: [logistics, transport, talentsoft]
+  # M11 rejected injob.geodis.com as "a proprietary ASP.NET portal, no
+  # sitemap, no JSON-LD" -- correct on those specific facts, but it never
+  # recognized the URL shape (/offre-de-emploi/liste-offres.aspx) as
+  # Talentsoft, which needs neither. Confirmed live: 33 real French
+  # candidates, incl. real Alternance postings in Gennevilliers, Thiais,
+  # and Limoges.
+
+- name: RATP
+  ats: workday
+  identifier: ratp.wd3.ratp_externe
+  tier: hot
+  tags: [transport, state-owned, workday]
+  # Found via a direct link on ratpgroup.com's own recruitment page. 18
+  # real search_terms-matched candidates, all Paris/IDF apprenticeships.
+
+- name: Keolis
+  ats: successfactors
+  identifier: https://careers.keolis.com/sitemap.xml
+  tier: warm
+  tags: [transport, mobility, successfactors]
+  # Confirmed SuccessFactors RMK via discovery/probe_vendor.py. 17 real
+  # search_terms-matched candidates across many real French cities.
+
+- name: ArianeGroup
+  ats: workday
+  identifier: arianegroup.wd3.EXTERNALALL
+  tier: warm
+  tags: [aerospace, defense, space, workday]
+  # 13 real search_terms-matched candidates, incl. real ALTERNANCE
+  # postings in Kourou (French Guiana) and Toulouse.

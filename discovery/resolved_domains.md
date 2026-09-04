@@ -325,3 +325,39 @@ domain were recorded as "no hit" rather than chased through a full manual
 homepage-to-careers-to-listings navigation for each -- that deeper method
 was reserved for Parts B/C/D's own named companies, which is what the
 milestone's method section describes it for.
+
+## M17 Part B: automotive, aerospace, transport, logistics
+
+Full cascade (probe_ats.py, then probe_vendor.py, then manual navigation)
+run against every company named.
+
+| Company | Vendor found | Added? | Notes |
+|---|---|---|---|
+| Trigo | SmartRecruiters | **Added** | 158 total, 2 real French candidates |
+| Segula Technologies | SmartRecruiters | **Added** | 1 real posting, Paris |
+| Alten | SmartRecruiters | **Added** | 1123 total, 32 search_terms-matched, 23 France-relevant |
+| Loft Orbital | Lever (confirmed real) | No | 57 postings, all US (San Francisco/Golden CO) -- zero French relevance |
+| Valeo | Workday | **Added** | 310 real search_terms-matched candidates, all apprenticeships |
+| Dassault Aviation | Talentsoft | **Added** | 3 real search_terms-matched candidates |
+| Aeroports de Paris | Talentsoft | **Added** | 7 real search_terms-matched candidates |
+| CMA CGM | SuccessFactors RMK | **Added** | confirmed via probe_vendor.py; 19 real search_terms-matched candidates |
+| SNCF | sitemap_jsonld (real JobPosting JSON-LD) | **Added** | a dedicated sitemap-jobs.xml declared in robots.txt; 40 real search_terms-matched candidates |
+| Geodis | Talentsoft | **Added** | M11 rejected injob.geodis.com as "proprietary ASP.NET, no sitemap, no JSON-LD" -- true but irrelevant, it's Talentsoft (needs neither); a genuine correction of a prior session's miss. 33 real French candidates |
+| RATP | Workday | **Added** | found via a direct link on ratpgroup.com; 18 real French apprenticeships |
+| Keolis | SuccessFactors RMK | **Added** | confirmed via probe_vendor.py; 17 real French candidates |
+| Getlink | sitemap_jsonld (real JobPosting JSON-LD) | Investigated, not added | real content confirmed (9 real French candidates via a manual override), but job URLs are shaped "/o/{slug}", which matches no DEFAULT_JOB_PATH_MARKERS and no numeric segment -- CompanySource has no config-level `job_path_markers` override field yet, only the adapter constructor does. Onboarding this needs a small config-schema change, which is engineering, not "companies only" -- not done this session, flagged for a future one |
+| ArianeGroup | Workday | **Added** | 13 real French candidates incl. Kourou and Toulouse apprenticeships |
+| Forvia (Faurecia) | Eightfold (confirmed: `window._EF_GROUP_ID = "faurecia.com"`) | Rejected | the real API call returns HTTP 403 -- a wall to our honest User-Agent, not retried |
+| MBDA | "Gestmax" (no adapter) | No | a vendor not in our roster |
+| KNDS / Nexter | "Profils.org" (no adapter) | No | same unsupported vendor seen for Vinci and Elior |
+| Gefco | Unconfirmed | No | gefco-careers.net fails to resolve from this environment |
+| STEF | WordPress (no real job board found) | No | stef.jobs is a WordPress content site with no job-posting URLs found; a WP feed exists but carries no structured postings |
+| ID Logistics | Talentsoft (URL shape confirmed) | No | career.id-logistics.com has an expired TLS certificate -- a real, ongoing misconfiguration on their end, same category as Fnac Darty and La Poste |
+| Air France KLM | Talentsoft (airfrance-recrute.talent-soft.com) | Already added | same tenant as the existing "Air France" entry (M14) -- no separate action needed |
+| Plastic Omnium, Hutchinson, Continental France, Bosch France, ZF France, Mahle France, Novares, Akka, Expleo, Altran | none | No | no hit on the self-serve sweep; not pursued via manual navigation given the scale of this milestone |
+| Latecoere, Liebherr Aerospace, Daher, Figeac Aero, Lisi Aerospace, Arquus, Ariane Group (Exotrail/Loft Orbital/Unseenlabs/Preligens covered above or below) | none | No | no hit on the self-serve sweep; not pursued further |
+| SNCF Connect, Transdev, Corsair, Transavia France, Bollore Logistics, DB Schenker France, XPO France | none | No | no hit on the self-serve sweep; not pursued via manual navigation given the scale of this milestone |
+
+13 added. Two real, confirmed vendor walls found this part: Forvia's
+Eightfold API (403) and ID Logistics' expired certificate. One genuine
+correction of a prior session's mistake (Geodis, M11).
