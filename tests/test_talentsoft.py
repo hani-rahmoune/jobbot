@@ -245,6 +245,31 @@ def test_parse_maps_every_real_offer_card_correctly(mock_client: httpx.Client) -
     assert "109999" not in jobs  # the blank-title card must be skipped, not stored
 
 
+def test_extract_offer_cards_handles_a_top_offer_s_nested_icon_markup() -> None:
+    # M16 Part B: live-confirmed on BRGM's own tenant -- a "top offer"
+    # posting wraps a decorative, empty icon <div> INSIDE the title link,
+    # before the actual title text. The old text-only title pattern
+    # ([^<]+?) couldn't match past that nested tag at all, silently
+    # dropping every "top offer" posting card.
+    html_snippet = """
+        <a class="ts-offer-list-item__title-link "
+           href="/offre-de-emploi/emploi-technicien-superieur_4094.aspx"
+           title="Technicien superieur mesures physiques F/H (Ref. : 2026-4094)">
+            <div class="ts-offer-list-item__top-offer-picto topOfferPicto">
+                <div class="square"></div>
+            </div>
+            Technicien sup&#233;rieur mesures physiques F/H
+        </a>
+        <ul class="ts-offer-list-item__badges">
+            <li>CDI</li><li>FREMING-MERLEBACH</li>
+        </ul>
+    """
+    cards = talentsoft_module._extract_offer_cards(html_snippet, "https://example.talent-soft.com")
+    assert len(cards) == 1
+    assert cards[0]["title"] == "Technicien supérieur mesures physiques F/H"
+    assert cards[0]["badges"] == ["CDI", "FREMING-MERLEBACH"]
+
+
 def test_malformed_entry_is_skipped_with_a_logged_warning(
     mock_client: httpx.Client, caplog: pytest.LogCaptureFixture
 ) -> None:

@@ -1,0 +1,79 @@
+# M16 Part B: French public research institutions and universities.
+#
+# This was in M10's original scope and never done. For data/AI stage and
+# apprenticeship postings these are arguably better targets than corporates:
+# high volume, exactly this project's domain, and (where they publish
+# through their own recruitment site rather than hiding behind a login-
+# gated internal portal) genuinely clean listings.
+#
+# Method for each of the 26 institutions considered: find the real
+# recruitment site (never a directory/aggregator -- CLAUDE.md rule 3),
+# check robots.txt with the corrected parser, then run the full adapter
+# cascade (SuccessFactors both modes, Eightfold, Talentsoft including
+# vanity domains, Greenhouse/Lever/Ashby/SmartRecruiters, Workday,
+# sitemap_jsonld). See discovery/resolved_domains.md's M16 Part B section
+# for the full table, including every institution checked and rejected/
+# unresolved, so this sweep is never repeated blind.
+#
+# Talentsoft turned out to be surprisingly common among these institutions
+# (a vanity-domain pattern already proven by MAIF in M12) -- 6 confirmed,
+# live-verified real tenants below. Every one was checked both with no
+# search_terms (to confirm the tenant carries real content at all) and
+# with the real settings.yaml search_terms (to confirm the live, in-
+# production narrowed count), reported per entry.
+
+- name: CEA
+  ats: talentsoft
+  identifier: https://cea-recrute.talent-soft.com
+  tier: warm
+  tags: [research, energy, public-sector, talentsoft]
+  # 779 total postings; search_terms narrows to 55 real candidates, incl. a
+  # real "ALTERNANCE - Ingenieur en conception et developpement d'assistants
+  # d'IA generative H/F" (Marcoule) -- exactly this project's domain.
+
+- name: BRGM
+  ats: talentsoft
+  identifier: https://brgm-recrute.talent-soft.com
+  tier: warm
+  tags: [research, geosciences, public-sector, talentsoft]
+  # 21 total postings (CDI/CDD/Post-doctorat), 0 currently match
+  # alternance/stage -- a genuine zero, not a narrowing bug (confirmed by
+  # querying ?Keywords= directly). Found and fixed a real parsing bug here:
+  # a "top offer" posting wraps a decorative icon <div> INSIDE the title
+  # link, which the adapter's old text-only title pattern couldn't match
+  # past at all -- see jobbot/sources/talentsoft.py's module comment.
+
+- name: IFPEN
+  ats: talentsoft
+  identifier: https://ifpen-employee.talent-soft.com
+  tier: warm
+  tags: [research, energy, public-sector, talentsoft]
+  # 13 total postings; search_terms narrows to 1 real candidate ("Alternance
+  # - Ingenieur genie chimique H-F").
+
+- name: Institut Pasteur
+  ats: talentsoft
+  identifier: https://institutpasteur-recrute.talent-soft.com
+  tier: warm
+  tags: [research, biomedical, public-sector, talentsoft]
+  # 18 total postings; search_terms narrows to 1 real candidate ("STAGE -
+  # Juriste Contrats", Paris). NOTE: a SEPARATE Talentsoft-looking domain,
+  # institutcurie-cand.talent-soft.com (Institut Curie, a different
+  # institution), returns only a single placeholder entry redirecting
+  # elsewhere -- not added, see discovery/resolved_domains.md.
+
+- name: IRD
+  ats: talentsoft
+  identifier: https://emploi-recrutement.ird.fr
+  tier: warm
+  tags: [research, development, public-sector, talentsoft]
+  # 31 total postings; search_terms narrows to 1 real candidate ("STAGE -
+  # Assistant(e) de projets", DIV).
+
+- name: Sorbonne Universite
+  ats: talentsoft
+  identifier: https://jobs.sorbonne-universite.fr
+  tier: warm
+  tags: [research, university, public-sector, talentsoft]
+  # 61 total postings, 0 currently match alternance/stage -- a genuine
+  # zero, not a narrowing bug (confirmed by querying ?Keywords= directly).

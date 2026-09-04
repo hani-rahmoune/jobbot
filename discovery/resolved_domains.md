@@ -140,3 +140,103 @@ here returned no hit on any of the four under any slug variant tried.
 an obvious slug guess -- it says nothing about SuccessFactors, Workday,
 Talentsoft, Eightfold, or a company's own sitemap, which is a different,
 not-yet-attempted investigation for any of these names.
+
+## M16 Part B: French research institutions and universities
+
+This was in M10's original scope, never done until now. Method for each: find
+the real recruitment site (never a directory/aggregator), check robots.txt
+with the corrected parser, run the full adapter cascade (SuccessFactors both
+modes, Eightfold, Talentsoft incl. vanity domains, Greenhouse/Lever/Ashby/
+SmartRecruiters, Workday, sitemap_jsonld). Talentsoft turned out to be
+surprisingly common -- 6 confirmed, live-verified real tenants, added to
+`companies/institutions.yaml`.
+
+| Institution | Recruitment site found | Vendor | Status | Notes |
+|---|---|---|---|---|
+| INRIA | jobs.inria.fr / recrutement.inria.fr | Custom (no known vendor) | Investigated, not added | See the dedicated M16 Part B2 writeup below -- flagged for approval, not built |
+| CNRS | emploi.cnrs.fr, carrieres.cnrs.fr | Custom (no known vendor) | Unresolved | .aspx-shaped but no Talentsoft signature found; no JSON-LD on the listing page checked |
+| CEA | cea-recrute.talent-soft.com (also reachable as emploi.cea.fr) | Talentsoft | Added | 779 total, 55 search_terms-matched incl. a real generative-AI apprenticeship |
+| INRAE | jobs.inrae.fr | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| ONERA | rejoindre.onera.fr | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| IFPEN | ifpen-employee.talent-soft.com (also reachable as emploi.ifpen.fr) | Talentsoft | Added | 13 total, 1 search_terms-matched |
+| IRT SystemX | not resolved | — | Unresolved | Every search result was an aggregator (Indeed/LinkedIn/JobTeaser/Glassdoor) -- no dedicated official recruitment domain found at all |
+| Institut Pasteur | institutpasteur-recrute.talent-soft.com (also reachable as emploi.pasteur.fr) | Talentsoft | Added | 18 total, 1 search_terms-matched |
+| IGN | ign.fr/nous-rejoindre/offres-emploi | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| CEREMA | cerema.fr/fr/recrutement | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| IRD | emploi-recrutement.ird.fr | Talentsoft | Added | 31 total, 1 search_terms-matched |
+| BRGM | brgm-recrute.talent-soft.com | Talentsoft | Added | 21 total, 0 currently match search_terms (a genuine zero, confirmed via `?Keywords=` directly, not a narrowing bug). Found and fixed a real talentsoft.py parsing bug here -- see jobbot/sources/talentsoft.py's module comment on the "top offer" nested-icon-div case |
+| IFREMER | ifremer.jobs.net | Unconfirmed ("jobs.net") | Unresolved | This host times out from this environment on every attempt -- not investigated further |
+| CNES | cnes.fr/en/job-openings | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found; no individual job links found in the listing page's static HTML either (possibly JS-rendered -- not pursued, rule against adding rendered sources unless nothing else works) |
+| ANSSI | ssi.gouv.fr/recrutement, talents.ssi.gouv.fr | Unconfirmed | Unresolved | talents.ssi.gouv.fr returned HTTP 503 when checked |
+| Institut Curie | institutcurie-cand.talent-soft.com (also reachable as curie.fr/offres-emploi) | Talentsoft | Rejected | The Talentsoft tenant itself is a stub: its single "posting" is a placeholder ("Find our offers on our website -- link in the ad"), not real content. Real listings apparently live elsewhere; not chased further this session |
+| INSERM | inserm.softy.pro | Softy (no adapter) | Unresolved | Real vendor identified (Softy, a French recruitment SaaS product), not one of ours; not built per the "no new adapters unless Part C proves one is needed" rule |
+| Telecom Paris | telecom-paris.fr links to institutminestelecom.recruitee.com | Recruitee (no adapter) | Unresolved | The whole Institut Mines-Telecom group (Telecom Paris, IMT Atlantique, and likely others) centralizes through this one Recruitee tenant |
+| CentraleSupelec | jobs.centralesupelec.fr | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| Ecole Polytechnique | recrutement.polytechnique.edu | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| ENS Paris-Saclay | ens-paris-saclay.fr/lecole/recrutement | Custom (no known vendor) | Unresolved | No vendor marker, no JSON-LD found |
+| Sorbonne Universite | jobs.sorbonne-universite.fr | Talentsoft | Added | 61 total, 0 currently match search_terms (a genuine zero, confirmed via `?Keywords=` directly) |
+| Universite Paris-Saclay | universite-paris-saclay.candidater.fr | "candidater.fr" (no adapter) | Unresolved | A distinct third-party product, not one of ours |
+| Nantes Universite | univ-nantes.nous-recrutons.fr | "nous-recrutons.fr" (no adapter) | Unresolved | A distinct third-party product, not one of ours; the page does carry generic ld+json (not JobPosting-typed) |
+| Centrale Nantes | jobs.ec-nantes.fr | Recruitee (no adapter) | Unresolved | Confirmed via CSP fingerprint match + explicit "recruitee" mention in the page body |
+| IMT Atlantique | imt-atlantique.fr/fr/tags/recrutement | Likely Recruitee (same group as Telecom Paris) | Unresolved | Not independently confirmed to link to the same institutminestelecom.recruitee.com tenant this session |
+
+6 added (CEA, IFPEN, Institut Pasteur, IRD, BRGM, Sorbonne Universite), all
+via Talentsoft. Recruitee now has THREE separate sightings across this
+session (Institut Mines-Telecom group, Centrale Nantes, and Part C's own
+sweep may add more) -- worth a dedicated future investigation into whether
+it's common enough among French institutions/employers to justify a real
+adapter, but not built here per the "no new adapters unless proven needed"
+rule.
+
+### M16 Part B2: INRIA, investigated and flagged for approval
+
+jobs.inria.fr / recrutement.inria.fr (both resolve to the same content):
+robots.txt allows everything (`Disallow:` with no value). No declared
+sitemap (`/sitemap.xml` 404s). No RSS/Atom feed link found. No JSON-LD
+anywhere on either the listing or a real job detail page checked. No JSON
+API found (no `/api/`, `fetch(`, `XMLHttpRequest`, `.json`, or `axios`
+reference anywhere in the listing page's own source; a real og:title meta
+tag is present on job detail pages, but nothing more structured).
+
+What it IS: a plain, server-rendered HTML listing (no JavaScript execution
+needed -- confirmed by fetching with plain httpx and finding real job
+titles and links already in the response body), with real content on
+every page checked: 99 unique job links found on the first listing page
+alone (`/public/classic/en/offres`), a substantial volume, consistent with
+INRIA's real, well-known focus on internships, PhDs, and postdocs in
+computer science/AI/data -- exactly this project's domain.
+
+This is the exact shape M16 Part B2 anticipated: a real, high-volume,
+on-domain source that doesn't fit any existing adapter (no JSON-LD, no
+sitemap, no RSS, no JSON API -- genuinely needs its own small HTML parser,
+the same kind of investment talentsoft.py itself represented for a
+different vendor). Per the explicit instruction, this is flagged for
+approval rather than built unasked. Pagination scheme for the full board
+wasn't determined (no `?page=` parameter found in the page 1 HTML) --
+would need to be worked out as part of building the adapter, not before.
+
+### M16 Part B3: Place de l'Emploi Public, flagged for a policy decision
+
+Two candidate portal domains found:
+
+- `choisirleservicepublic.gouv.fr`: reachable, robots.txt allows crawling
+  (only `/wp-admin/` and a PDF-uploads path disallowed) and declares a
+  sitemap index. That sitemap index is stale (every entry dated
+  2023-04-14) and lists only static content/PDF/image sitemaps generated
+  by a third-party SEO crawler tool (Screaming Frog), not a live per-
+  posting job feed -- this looks like the institution's own informational/
+  employer-branding site, not the actual job search engine.
+- `place-emploi-public.gouv.fr`, the name most commonly cited as the real
+  government-wide job portal (launched 2019, unifies State/territorial/
+  hospital civil service postings, reportedly 100,000+ active postings):
+  does not resolve from this environment at all (confirmed via both this
+  session's own httpx client and an independent WebFetch call, both
+  failing DNS resolution) -- not investigated further.
+
+Per the explicit instruction, this is a policy question for the user, not
+a technical one this session resolves alone: a government-wide publication
+portal aggregating postings ACROSS many public employers is a different
+category from a commercial job-board aggregator (Indeed/LinkedIn/WTTJ),
+but it IS still an aggregation point rather than any single institution's
+own first-party system, which is what CLAUDE.md rule 2/3 are built around.
+Flagged, not added, pending that decision.

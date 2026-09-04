@@ -64,6 +64,7 @@ import httpx
 from jobbot.models import Job
 from jobbot.sources.base import JobSource, SourceError, SourceNotFoundError
 from jobbot.sources.classify import classify_contract_type
+from jobbot.sources.html_text import strip_html
 from jobbot.sources.robots import RobotsCache
 
 logger = logging.getLogger(__name__)
@@ -98,9 +99,22 @@ _TOTAL_OFFERS_RE = re.compile(r"(\d+)\s*offre")
 # found live to force one or the other). Both wrap a posting's title link
 # and its contract-type/location badge list in the same structural shape,
 # just under different class-name prefixes, so one regex matches either.
+#
+# M16 Part B: the title group matches ANY content up to the next `</a>`
+# (not just `[^<]+?`, plain text) -- confirmed live necessary for BRGM's own
+# tenant, whose "top offer" postings wrap a decorative, empty icon `<div>`
+# INSIDE the title link before the actual title text
+# (`<a class="ts-offer-list-item__title-link">
+#     <div class="...top-offer-picto..."><div class="square"></div></div>
+#     Technicien superieur mesures physiques F/H</a>`) -- the old
+# text-only pattern couldn't match past that nested tag at all, silently
+# dropping every "top offer" posting on any tenant that uses this template
+# feature. The captured group is cleaned with strip_html() below (which
+# drops any nested markup and empty lines, e.g. from that decorative div)
+# rather than the plain html.unescape() a text-only capture only needed.
 _OFFER_CARD_RE = re.compile(
     r'ts-offer-(?:card|list-item)__title-link[^>]*\shref="(?P<href>[^"]*)"[^>]*>'
-    r"\s*(?P<title>[^<]+?)\s*</a>.*?"
+    r"\s*(?P<title>.+?)\s*</a>.*?"
     r'<ul\s+class="ts-offer-[^"]*"[^>]*>\s*(?P<badges>.*?)</ul>',
     re.DOTALL,
 )
@@ -309,7 +323,7 @@ def _extract_offer_cards(page_html: str, base_url: str) -> list[dict]:
     postings = []
     for match in _OFFER_CARD_RE.finditer(page_html):
         href = match.group("href")
-        title = html.unescape(match.group("title")).strip()
+        title = strip_html(match.group("title"))
         badges = [html.unescape(b).strip() for b in _BADGE_LI_RE.findall(match.group("badges"))]
         id_match = _TRAILING_ID_RE.search(href)
         postings.append(
