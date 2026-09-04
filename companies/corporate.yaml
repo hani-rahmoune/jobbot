@@ -71,7 +71,7 @@
 
 - name: Airbus
   ats: workday
-  identifier: ag.wd3.Airbus
+  identifier: ag.wd3.Airbus|locationCountry=54c5b6971ffb4bf0b116fe7651ec789a
   tier: warm
   tags: [aerospace, cac40, workday]
 
@@ -864,7 +864,7 @@
 
 - name: Air Liquide
   ats: workday
-  identifier: airliquidehr.wd3.AirLiquideExternalCareer
+  identifier: airliquidehr.wd3.AirLiquideExternalCareer|locationCountry=54c5b6971ffb4bf0b116fe7651ec789a
   tier: warm
   tags: [energy, industrial-gases, workday]
   # 198 real search_terms-matched candidates, all real Alternance
