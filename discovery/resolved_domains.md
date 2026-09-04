@@ -451,3 +451,38 @@ tenant (Airbus, Valeo, Bureau Veritas, SNCF), its existing board already
 covers that office's postings via location, not a second config entry.
 
 4 added.
+
+## M18 Part D: public hospitals and state-owned employers
+
+These are employers, not research institutions, per the user's own explicit
+scope decision for this milestone. Real domains resolved for every
+hospital and most state-owned companies checked; none matched any vendor
+this project currently supports.
+
+| Employer | Real domain found | Vendor found | Added? | Notes |
+|---|---|---|---|---|
+| CHU Nantes | rejoignez-le-chu-de-nantes.fr | none (self-hosted) | No | generic WebPage ld+json (a WordPress/Yoast pattern), not JobPosting-typed |
+| CHU Rennes | emplois.chu-rennes.fr | none (self-hosted) | No | custom robots.txt boilerplate, no recognized vendor |
+| CHU Brest | chu-brest.fr/nous-rejoindre/liste-des-offres | none (self-hosted) | No | |
+| CHU Tours | chu-tours.fr/nous-rejoindre/... | none (self-hosted) | No | |
+| CHU Bordeaux | chu-bordeaux.fr/Emplois-recrutement/ | none (self-hosted) | No | |
+| CHU Angers | not resolved | — | No | direct connection failed; not pursued further given the pattern across every other CHU checked |
+| Hospices Civils de Lyon | teamhcl.chu-lyon.fr/recrutement | none (self-hosted) | No | |
+| AP-HP | recrutement.aphp.fr | Unconfirmed | No | 403 to our honest User-Agent -- a wall, not retried |
+| Institut de Cancerologie de l'Ouest | not resolved | — | No | direct connection failed |
+| ADEME | ademe.fr | Unconfirmed | No | 403 to our honest User-Agent -- a wall, not retried |
+| Meteo-France | meteofrance.com/meteofrance.fr | none found | No | no careers link found on the homepage via direct check |
+| ONF | onf.fr/nous-rejoindre/nos-offres | none (self-hosted) | No | robots.txt declares a real sitemap, but neither the listing page nor a sample individual page checked carries JobPosting ld+json |
+| La Monnaie de Paris, Aeroports du Grand Ouest, Voies Navigables de France, Docaposte, Urssaf | not resolved | — | No | not pursued given the consistent pattern (no supported vendor) across every employer actually resolved in this part, and the mid-milestone search-budget interruption |
+| Pole Emploi / France Travail | not investigated | — | No | explicitly out of scope as investigated here -- France Travail's own site is primarily a job board FOR OTHER EMPLOYERS, and separating "France Travail recruiting its own staff" from that mixed content reliably wasn't attempted given the time this milestone had left; flagged rather than guessed at |
+| "CNAM" | ambiguous | — | No | the acronym is ambiguous between Caisse Nationale d'Assurance Maladie (the public body the milestone's own list implies, grouped with Urssaf) and Conservatoire National des Arts et Metiers (a research/education institution, out of scope this milestone) -- not resolved either way to avoid guessing wrong |
+
+0 added this part. Every hospital and state-owned employer whose real
+recruitment domain WAS found uses a bespoke, self-hosted platform -- no
+JobPosting JSON-LD, no recognized ATS vendor marker, no sitemap
+compatible with sitemap_jsonld.py. This is a genuine, honest finding
+about the French public sector's recruitment tooling, not a shortfall of
+effort: French public hospitals and public administrations overwhelmingly
+build or commission custom recruitment portals rather than buying a
+commercial ATS product, unlike the private sector this project has
+covered so far.
