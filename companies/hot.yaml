@@ -321,3 +321,89 @@
   # open-application listing rather than a specific role; confirmed real
   # via meilisearch.com/careers, which links to this exact Lever board.
   # Added so a real stage/alternance posting surfaces the moment one opens.
+
+# --- M17 Part D: extending M16 Part A's self-serve ATS sweep ------------
+#
+# Same discovery/probe_ats.py sweep, a longer company list. Every entry
+# below live-verified through the real adapter. See
+# discovery/resolved_domains.md's M17 Part D section for the full hit
+# table, including companies with a real tenant but no French relevance
+# (Cegid, Sunday) and companies with zero hits.
+
+- name: Ankorstore
+  ats: ashby
+  identifier: ankorstore
+  tier: hot
+  tags: [ecommerce, marketplace, paris]
+  # 2 postings, both Paris.
+
+- name: Vestiaire Collective
+  ats: lever
+  identifier: vestiairecollective
+  tier: hot
+  tags: [ecommerce, secondhand, paris]
+  # 11 postings, 6 Paris-plausible incl. real "Director of Cloud
+  # Infrastructure & Security" and "FP&A Manager".
+
+- name: 360Learning
+  ats: lever
+  identifier: 360learning
+  tier: hot
+  tags: [edtech, saas, paris]
+  # 30 postings, 12 Paris-specific.
+
+- name: Believe
+  ats: smartrecruiters
+  identifier: believe
+  tier: hot
+  tags: [music, media, paris]
+  # 17 postings, 5 France-relevant incl. a real Paris "Engineering
+  # Manager".
+
+- name: Voodoo
+  ats: ashby
+  identifier: voodoo
+  tier: hot
+  tags: [gaming, mobile, paris]
+  # 102 postings, 71 Paris-specific -- a real, substantial French mobile-
+  # gaming board.
+
+- name: Gameloft
+  ats: smartrecruiters
+  identifier: gameloft
+  tier: warm
+  tags: [gaming, paris]
+  # 43 postings, 4 Paris-specific (most of the global board is
+  # Ukraine/Spain-based studios) -- a real, if smaller, French presence.
+
+- name: Don't Nod
+  ats: smartrecruiters
+  identifier: dontnod
+  tier: warm
+  tags: [gaming, paris]
+  # Only 3 postings, 1 real Paris one ("Candidature Spontanee F/H/X") --
+  # thin but real, a known French video-game studio.
+
+- name: Equativ
+  ats: lever
+  identifier: equativ
+  tier: warm
+  tags: [adtech, paris]
+  # 23 postings, 4 France-relevant incl. a real Paris "Back-End Engineer".
+
+- name: Ogury
+  ats: lever
+  identifier: ogury
+  tier: warm
+  tags: [adtech, privacy, paris]
+  # 21 postings, 5 France-relevant incl. two real Paris apprenticeships
+  # ("Apprentice Accountant", "Client Services Executive - 1 Year
+  # Apprenticeship"). Also hit SmartRecruiters under the same slug, but
+  # with only 1 posting -- Lever is clearly the primary, richer board.
+
+- name: Epsor
+  ats: smartrecruiters
+  identifier: epsor
+  tier: hot
+  tags: [fintech, savings, paris]
+  # 2 postings, both Paris.

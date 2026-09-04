@@ -386,3 +386,30 @@ user's own explicit scope decision for this milestone.
 3 added. Two real, non-wall parsing gaps found this part worth a future
 session's attention: Enedis' JS-driven Talentsoft template variant, and
 Orano's Avature tenant (not investigated for a JSON API this session).
+
+## M17 Part D: extending M16 Part A's tech/fintech sweep
+
+Same discovery/probe_ats.py sweep (obvious slug variants), a longer
+company list, per the explicit instruction. Every hit live-verified
+through the real adapter before adding.
+
+| Company | Slug tried | Vendor hit | Postings | Status |
+|---|---|---|---|---|
+| Ankorstore | ankorstore | Ashby | 2 | Added -- both Paris |
+| Vestiaire Collective | vestiairecollective | Lever | 11 | Added -- 6 France-plausible |
+| Leboncoin, Datadog France, Talend, Sinequa, Systran, Golem.ai, LightOn, Giskard, Hugging Face, Clevy, Zeliq, Sage France, Lucca, PayFit, Combo, Javelo, OpenClassrooms, Ironhack France, Wild Code School, Jellysmack, Deezer, Blade, Homa Games, Quantic Dream, Amplitude Studios, Asobo, Arkane Lyon, Criteo, Teads, Adot, Zenly, Alma, Lydia, Memo Bank, Green-Got, Yousign, Leocare, Luko, Descartes Underwriting, Zelros, Cardif | (various) | none | — | No hit on any of the four self-serve ATS under any obvious slug |
+| Cegid | cegid | SmartRecruiters (confirmed real) | 1 | Not added -- the one posting is in Kingston, Ontario, Canada, zero French relevance |
+| 360Learning | 360learning | Lever | 30 | Added -- 12 Paris-specific |
+| Believe | believe | SmartRecruiters | 17 | Added -- 5 France-relevant incl. a real Paris "Engineering Manager" |
+| Voodoo | voodoo | Ashby | 102 | Added -- 71 Paris-specific, a real substantial French mobile-gaming board |
+| Gameloft | gameloft | SmartRecruiters | 43 | Added -- 4 Paris-specific (most of the global board is Ukraine/Spain studios) |
+| Don't Nod | dontnod | SmartRecruiters | 3 | Added -- thin (1 real Paris posting) but real, a known French video-game studio |
+| Equativ | equativ | Lever | 23 | Added -- 4 France-relevant incl. a real Paris Back-End Engineer role |
+| Ogury | ogury | Lever AND SmartRecruiters | 21 / 1 | Added via Lever -- 5 France-relevant incl. two real Paris apprenticeships; SmartRecruiters' single posting makes Lever clearly the primary board |
+| Sunday | sunday | Ashby (confirmed real) | 24 | Not added -- 23 of 24 postings are Redwood City, CA -- almost certainly a same-named but different (US) company, not a French one |
+| Epsor | epsor | SmartRecruiters | 2 | Added -- both Paris |
+| Wakam | wakam | Greenhouse (confirmed real) | 0 | Not added -- a real tenant, currently zero postings |
+
+10 added. Two real tenants found and deliberately not added: Cegid (real,
+zero French relevance) and Sunday (real, but almost certainly a
+different, US-based company sharing the name).
