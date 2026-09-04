@@ -361,3 +361,28 @@ run against every company named.
 13 added. Two real, confirmed vendor walls found this part: Forvia's
 Eightfold API (403) and ID Logistics' expired certificate. One genuine
 correction of a prior session's mistake (Geodis, M11).
+
+## M17 Part C: energy, state-owned companies, industry
+
+Same cascade. These are companies, including state-owned ones, per the
+user's own explicit scope decision for this milestone.
+
+| Company | Vendor found | Added? | Notes |
+|---|---|---|---|
+| Socotec | SmartRecruiters | **Added** | 733 total, 25 real French candidates |
+| Air Liquide | Workday | **Added** | 198 real French Alternance candidates |
+| Framatome | Talentsoft | **Added** | 29 real French candidates |
+| EDF | — | No | edf.fr returns 403 to our honest User-Agent -- a wall, not retried |
+| Orano | Avature (confirmed: avature/avacdn markers) | Investigated, not added | rendered sources are excluded per the explicit rule this milestone; a JSON API was not investigated given the time this took for TotalEnergies/L'Oreal in prior milestones |
+| Enedis | Talentsoft (confirmed: `enedisJobApi` config value naming enedis-recrute.talent-soft.com) | Investigated, not added | the tenant reports 126 real offers in its own page text, but uses a JS-driven template variant this project's Talentsoft parser doesn't recognize at all (no `ts-offer-*` markup anywhere in the server-rendered HTML) -- a genuine parsing gap, not a wall; needs further investigation in a future session |
+| Bureau Veritas | SuccessFactors RMK (confirmed via probe_vendor.py) | Investigated, not added | real tenant, but the 15 real search_terms-matched postings found were all Italy/Malaysia -- zero French relevance in this sample |
+| RTE | Unconfirmed | No | recrutement.rte-france.com timed out on every attempt |
+| Bpifrance | Unconfirmed | No | talents.bpifrance.fr returns 403 to our honest User-Agent -- a wall, not retried |
+| Caisse des Depots | Unconfirmed (self-hosted, generic ld+json) | No | caissedesdepots-recrute.fr shows no recognized vendor marker |
+| Groupe SEB | "SelectMinds" (no adapter) | No | groupeseb.referrals.selectminds.com is real (ld+json present) but not JobPosting-typed on the landing page; not pursued further given time. groupeseb-careers.com (M14's own prior lead) remains 404 |
+| Nexans | Avature (confirmed, M13) | No | unchanged from M13's own finding: fully client-rendered, unresolved even with a real browser |
+| Vallourec, GRTgaz, Storengy, Technip Energies, Saipem France, Suez, Paprec, Derichebourg, La Francaise des Jeux, Banque de France, Docaposte, SNCF Reseau, Imprimerie Nationale, Sonepar, Fives, Haulotte, SGS France, Dekra France, Apave | none | No | no hit on the self-serve sweep; not pursued via manual navigation given the scale of this milestone's remaining part |
+
+3 added. Two real, non-wall parsing gaps found this part worth a future
+session's attention: Enedis' JS-driven Talentsoft template variant, and
+Orano's Avature tenant (not investigated for a JSON API this session).

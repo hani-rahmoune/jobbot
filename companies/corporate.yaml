@@ -834,3 +834,30 @@
   tags: [aerospace, defense, space, workday]
   # 13 real search_terms-matched candidates, incl. real ALTERNANCE
   # postings in Kourou (French Guiana) and Toulouse.
+
+# M17 Part C: energy, state-owned companies, industry. Same cascade. See
+# discovery/resolved_domains.md's M17 Part C section for the full table.
+
+- name: Socotec
+  ats: smartrecruiters
+  identifier: socotec
+  tier: warm
+  tags: [industry, testing-inspection, smartrecruiters]
+  # 733 total postings; 25 real French candidates, mostly real Alternance
+  # roles (Guyancourt, Nice, Puteaux).
+
+- name: Air Liquide
+  ats: workday
+  identifier: airliquidehr.wd3.AirLiquideExternalCareer
+  tier: warm
+  tags: [energy, industrial-gases, workday]
+  # 198 real search_terms-matched candidates, all real Alternance
+  # postings across many French sites (Sassenage, Mions, Les
+  # Loges-en-Josas).
+
+- name: Framatome
+  ats: talentsoft
+  identifier: https://framatome-career.talent-soft.com
+  tier: warm
+  tags: [energy, nuclear, talentsoft]
+  # 29 real French candidates, mostly real Alternance postings.
