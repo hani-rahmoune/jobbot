@@ -5,11 +5,48 @@
 
 locations:
   # Stage/internship (a few months, often barely paid, so proximity
-  # matters) uses this base scope, completely unscoped -- unchanged since
-  # before M19. It stays exactly this narrow: Paris, Ile-de-France, Nantes
-  # and nearby.
-  include: [paris, ile-de-france, "75", "92", "93", "94", nantes, "44",
-            loire-atlantique, remote, teletravail, hybride]
+  # matters) uses this base scope, completely unscoped. Still narrow --
+  # Paris, Ile-de-France (now all 8 departments, not just the 4 nearest),
+  # Nantes and nearby -- but M20 Part A completed Ile-de-France: 77/78/91/95
+  # were missing entirely, and Saclay/Evry in particular are dense with
+  # data and chemistry internships despite being a real RER ride from
+  # central Paris. Department names are included alongside the codes since
+  # a posting often names the department instead of (or as well as) giving
+  # a code.
+  include:
+    - paris
+    - ile-de-france
+    - "75"
+    - "92"
+    - "93"
+    - "94"
+    - "77"
+    - "78"
+    - "91"
+    - "95"
+    - seine-et-marne
+    - yvelines
+    - essonne
+    - val-d-oise
+    - val d oise
+    - hauts-de-seine
+    - seine-saint-denis
+    - val-de-marne
+    - saclay
+    - palaiseau
+    - orsay
+    - gif-sur-yvette
+    - massy
+    - versailles
+    - cergy
+    - evry
+    - marne-la-vallee
+    - nantes
+    - "44"
+    - loire-atlantique
+    - remote
+    - teletravail
+    - hybride
   exclude: [lyon, marseille, bordeaux, toulouse]
   match_mode: substring        # substring | word
   unknown_location: keep       # keep | drop, applies when location is ""
@@ -25,18 +62,46 @@ locations:
   by_contract_type:
     apprenticeship:
       include:
+        # M20 Part A: kept byte-for-byte identical to the base block above
+        # (paris ... hybride) so apprenticeship is provably a superset of
+        # internship's scope, never missing something internship covers.
         - paris
         - ile-de-france
         - "75"
         - "92"
         - "93"
         - "94"
+        - "77"
+        - "78"
+        - "91"
+        - "95"
+        - seine-et-marne
+        - yvelines
+        - essonne
+        - val-d-oise
+        - val d oise
+        - hauts-de-seine
+        - seine-saint-denis
+        - val-de-marne
+        - saclay
+        - palaiseau
+        - orsay
+        - gif-sur-yvette
+        - massy
+        - versailles
+        - cergy
+        - evry
+        - marne-la-vallee
         - nantes
         - "44"
         - loire-atlantique
         - remote
         - teletravail
         - hybride
+        # Wide apprenticeship-only scope from here down (M19 Part B). Cergy/
+        # Evry/Versailles/Saclay/95/91/78 used to be listed a second time in
+        # this block; removed as of M20 -- they're covered by the shared
+        # Ile-de-France block above now, no need to duplicate them.
         - lyon
         - "69"
         - grenoble
@@ -122,13 +187,6 @@ locations:
         - "90"
         - compiegne
         - "60"
-        - cergy
-        - "95"
-        - evry
-        - "91"
-        - versailles
-        - "78"
-        - saclay
         - villeurbanne
         - grenoble-alpes
         - grenoble alpes
@@ -183,7 +241,33 @@ keywords:
             materials informatics, computational materials, in silico,
             rdkit, schrodinger, vasp, gromacs, autodock, open babel, pyscf,
             quantum espresso, lammps, cp2k,
-            molecular representation learning, graph neural network chemistry]
+            molecular representation learning, graph neural network chemistry,
+            # M20 Part B: recall within data/AI/computational chemistry only
+            # (explicit user scope decision -- software eng, IT infra, cyber,
+            # general engineering stay OUT). B1 fetched one live poll's raw
+            # postings and checked every location-eligible-but-keyword-failed
+            # title (367 of them); the overwhelming majority were finance, HR,
+            # procurement, hospitality, legal, and general-engineering/
+            # materials roles, not mislabeled data/AI/chem roles -- see the
+            # M20 report for the full breakdown. What's below is what that
+            # evidence actually supports, not the full candidate list handed
+            # in: many candidates (data analyst/scientist/steward/manager/
+            # quality/governance/platform/warehouse, traitement/valorisation/
+            # gouvernance/qualite/visualisation/fouille/exploration "de
+            # donnees", analyse de donnees, analyse statistique, modelisation
+            # statistique, systeme d information decisionnel, power bi,
+            # generative ai/ia generative/agents ia/ai agents) were verified
+            # against the existing list and are ALREADY fully covered by the
+            # bare data/donnees/statistique/decisionnel/bi/ai/ia keywords
+            # already present above -- adding them as separate entries would
+            # match strictly nothing new, so they were left out as no-ops
+            # rather than padded in.
+            traitement du signal, traitement d images, dataviz,
+            modelisation predictive, apprentissage profond, reseaux de neurones,
+            vision par ordinateur, traitement automatique du langage,
+            aide a la decision, etl, elt, dbt, hadoop, databricks, snowflake,
+            scikit, pytorch, tensorflow, prompt engineering, llmops,
+            chemometrie, spectroscopie computationnelle]
   # Deliberately left OUT of the list above (see M19 Part C report): gaussian,
   # orca, force field, monte carlo simulation. All four are common terms of
   # art far outside computational chemistry too -- Gaussian distributions/
@@ -195,6 +279,17 @@ keywords:
   # co-occurrence/AND condition to require chemistry context alongside them,
   # so rather than build that (out of scope this milestone) or flood the
   # feed, they're left out.
+  #
+  # Also left OUT (M20 Part B, same discipline): bare "modelisation",
+  # "simulation numerique", "calcul scientifique", "calcul haute performance"/
+  # "hpc", and "jumeau numerique" -- B1's own evidence directly shows the
+  # risk: a CEA "Simulation CFD de jet de vapeur sonique" internship and a
+  # TotalEnergies "MODELISATION DE LA DISPERSION DE POLLUANT" apprenticeship
+  # both appeared in the raw fetch, and both are general computational
+  # engineering (fluid dynamics, atmospheric dispersion) -- exactly the
+  # adjacent-discipline leakage the user ruled out, not data/AI/comp-chem.
+  # "spark", "tableau", and "rag" are also left out -- see the M20 report's
+  # B4 section for the short-ambiguous-term reasoning on each.
   exclude: [sales, commercial, vente, recrutement, recruiting, recruiter,
             talent, account executive, customer success, marketing]
   match_mode: word             # word | substring
