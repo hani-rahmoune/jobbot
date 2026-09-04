@@ -12,7 +12,7 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Eramet | jobs.eramet.com | SuccessFactors RMK | Added | sitemap mode |
 | Nexans | career.nexans.com | SuccessFactors RMK | Rejected | fully client-rendered, unresolved even with a real browser (M13) |
 | Worldline | jobs.worldline.com | SuccessFactors RMK | Added | sitemap mode, lenient itemprop |
-| Capgemini | jobs.capgemini.com | SuccessFactors RMK | Rejected | feed stuck at 1 item by every method tried (M13/M14); listing page reports real counts but no rows materialize in the DOM (M13 rendered.py attempt) |
+| Capgemini | jobs.capgemini.com | SuccessFactors RMK | Rejected | feed stuck at 1 item by every method tried (M13/M14); listing page reports real counts but no rows materialize in the DOM (M13 rendered.py attempt). M15 Part A re-check: its `/services/t/l` JS-driven listing path is disallowed by a plain `Disallow: /services/` rule with no overriding `Allow:` anywhere -- correctly disallowed under BOTH the old buggy parser and the M14-corrected one, not a false negative. Verdict unchanged, still excluded |
 | Alstom | jobsearch.alstom.com | SuccessFactors RMK | Added | RSS mode |
 | Sephora | jobs.sephora.com | SuccessFactors RMK | Added | RSS mode |
 | Atos | jobs.atos.net | SuccessFactors RMK | Added | sitemap mode |
@@ -28,7 +28,7 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Scaleway | jobs.lever.co/scaleway | Lever | Added | |
 | MAIF | recrutement.maif.fr | Talentsoft (custom vanity domain) | Added | proved custom-domain Talentsoft tenants are real, not just `*.talent-soft.com` |
 | Sodebo | sodebo-career.talent-soft.com | Talentsoft | Added | |
-| TotalEnergies | jobs.totalenergies.com | Avature (client-rendered) | Rejected — **re-open** | M13 wrongly concluded its own robots.txt disallowed everything; that was a parser bug in `jobbot/sources/robots.py` (longest-match, fixed M14 Part A prep). The 984 slug-matched candidates are real and robots.txt-allowed after the fix. Content is still genuinely Avature-rendered (needs `rendered.py`); not re-attempted this session, flagged for the next rendered.py pass |
+| TotalEnergies | jobs.totalenergies.com | Avature (client-rendered) | Rejected — **re-open, confirmed false negative** | M13 wrongly concluded its own robots.txt disallowed everything; that was a parser bug in `jobbot/sources/robots.py` (longest-match, fixed M14 Part A prep). M15 Part A re-check: `Allow: /$`, `Allow: /careers`, `Allow: /*/careers` all correctly win now -- confirmed live, the 984 slug-matched candidates are real and robots.txt-allowed. Content is still genuinely Avature-rendered; M15 Part B result below |
 | Saint-Gobain | joinus.saint-gobain.com | — | Rejected | Cloudflare challenge page (403, "Just a moment..."), excluded per the no-Cloudflare-evasion rule |
 | Legrand | careers.legrand.com (real electrical-equipment company) | — | Unresolved | no sitemap found; `carrieres.groupe-legrand.fr` is a **different, same-named company** (marine/auto-parts, M11) — do not reuse that domain |
 | Dassault Systemes | 3ds.com | — | Unresolved | only sitemap found is corporate-wide, not careers-scoped; not RMK/Eightfold (M14 sweep) |
