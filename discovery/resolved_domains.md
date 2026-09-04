@@ -62,7 +62,7 @@ entry exists; "Rejected"/"Unresolved" employers are not in config.
 | Sodexo France | sodexo-recrute.talent-soft.com | Talentsoft | Added (M14 Part B1) | found in M12's search sweep, never actually added until now |
 | OVHcloud | careers.ovhcloud.com | — | Unresolved | ATS not identified, not yet checked |
 | Doctolib | not resolved | — | Unresolved | not yet attempted |
-| Blablacar | not resolved | — | Unresolved | not yet attempted |
+| Blablacar | jobs.lever.co/blablacar | Lever | Added (M16 Part A) | 12 real postings, all France/remote-plausible -- found via the systematic Greenhouse/Lever/Ashby/SmartRecruiters sweep, not a domain-resolution attempt |
 | Mirakl | job-boards.greenhouse.io/mirakl | Greenhouse | Added (M14) | 14 real postings, confirmed live. A second board, "miraklfr", exists but is empty (0 jobs) -- do not use it |
 | Contentsquare | jobs.lever.co/contentsquare | Lever | Added (M14) | 31 real postings, confirmed live |
 | Auchan | www.auchan-recrute.fr | — | Unresolved | platform not identified as of M11 |
@@ -77,3 +77,66 @@ laposterecrute.fr, recrutement.bpce.fr, recrutement.covea.com,
 recrutement.decathlon.fr, recrutement.michelin.fr, recrutement.natixis.com,
 safran-group.com, talents.hermes.com, workatgeodis.com, kering.com (the
 corporate site itself, as opposed to careers.kering.com).
+
+## M16 Part A: self-serve ATS sweep (Greenhouse / Lever / Ashby / SmartRecruiters)
+
+`discovery/probe_ats.py` swept 44 French data/AI scale-ups against all four
+vendors' own multi-tenant board APIs by guessing the tenant slug (lowercase,
+no-spaces, hyphenated, alphanumeric-only), since these four are self-serve
+products a startup picks without a domain-level vendor signal to look for.
+Already-configured companies (Aircall, Dust, Owkin) were skipped. Every hit
+below with a nonzero posting count was live-verified through the real
+adapter before being added to `companies/hot.yaml`; a company not listed
+here returned no hit on any of the four under any slug variant tried.
+
+| Company | Slug tried | Vendor hit | Postings | Status |
+|---|---|---|---|---|
+| Mistral AI | mistral (extra guess) | Lever | 0 | Not added -- real tenant, currently zero postings |
+| Hugging Face | huggingface, hf | none | — | No hit on any of the four |
+| Poolside | poolside | Ashby | 15 | Added |
+| Alan | alan | Ashby | 113 | Added |
+| Qonto | qonto | Lever AND Ashby | 43 / 43 | Added via Lever only -- see the companies/hot.yaml comment for why |
+| Swile | swile | Lever | 24 | Added |
+| Ledger | ledger | Lever AND Ashby | 1 / 8 | Added via Ashby only -- see the companies/hot.yaml comment for why |
+| Back Market | backmarket | Ashby | 18 | Added |
+| ManoMano | manomano | none | — | No hit on any of the four |
+| Veepee | veepee | Lever | 73 | Added |
+| BlaBlaCar | blablacar | Lever | 12 | Added |
+| Deezer | deezer | none | — | No hit on any of the four |
+| Payfit | payfit, thegreatpayfit | none | — | No hit on any of the four |
+| Spendesk | spendesk | Ashby | 0 | Not added -- real tenant, currently zero postings |
+| Pennylane | pennylane | Ashby | 163 | Added |
+| Shift Technology | shifttechnology | Greenhouse | 23 | Added |
+| Sorare | sorare | Ashby | 4 | Added |
+| Younited | younited | Lever | 5 | Added |
+| Lydia | lydia | none | — | No hit on any of the four |
+| Kili Technology | kilitechnology, kili | none | — | No hit on any of the four |
+| Hiflow | hiflow | none | — | No hit on any of the four |
+| Descartes Underwriting | descartesunderwriting | none | — | No hit on any of the four |
+| Pigment | pigment | Lever | 113 | Added |
+| Ledger Investing | ledgerinvesting | none | — | No hit on any of the four |
+| Malt | malt | Lever | 32 | Added |
+| Alma | alma | none | — | No hit on any of the four |
+| Agicap | agicap | Lever | 30 | Added |
+| Libeo | libeo | none | — | No hit on any of the four |
+| Silvr | silvr | Greenhouse | 1 | Added |
+| Ramify | ramify | none | — | No hit on any of the four |
+| Finary | finary | Ashby | 10 | Added |
+| Indy | indy | none | — | No hit on any of the four |
+| Luko | luko | none | — | No hit on any of the four (acquired/wound down; expected) |
+| Meilisearch | meili (extra guess) | Lever | 1 | Added -- a standing open-application listing, not a specific role |
+| Clever Cloud | clevercloud | none | — | No hit on any of the four |
+| Platform.sh | platformsh | Greenhouse | 7 | Added |
+| Nabla | nabla | Ashby | 15 | Added |
+| Cardiologs | cardiologs | Lever | 1 | Added |
+| Therapixel | therapixel | none | — | No hit on any of the four |
+| Gleamer | gleamer | none | — | No hit on any of the four |
+| Raidium | raidium | Lever | 4 | Added |
+| Bioptimus | bioptimus | none | — | No hit on any of the four |
+| Adaptive ML | adaptiveml | none | — | No hit on any of the four |
+| Linagora | linagora | none | — | No hit on any of the four |
+
+22 added. A "no hit" here only rules out these four self-serve vendors under
+an obvious slug guess -- it says nothing about SuccessFactors, Workday,
+Talentsoft, Eightfold, or a company's own sitemap, which is a different,
+not-yet-attempted investigation for any of these names.

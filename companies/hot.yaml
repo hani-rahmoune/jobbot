@@ -116,3 +116,208 @@
   identifier: photoroom
   tier: hot
   tags: [ai, computer-vision, paris]
+
+# --- M16 Part A: systematic Greenhouse/Lever/Ashby/SmartRecruiters sweep ---
+#
+# discovery/probe_ats.py swept the French data/AI scale-up scene
+# systematically for the first time (obvious slug variants: lowercase,
+# no-spaces, hyphenated, alphanumeric-only). Every entry below was live-
+# verified through the REAL adapter (not just the probe), confirming real
+# postings and the right legal entity -- see discovery/resolved_domains.md
+# for the full sweep table, including companies that returned no hit on
+# any of the four, and two dual-vendor-hit cases (Qonto, Ledger) resolved
+# by checking which board the company's own live homepage actually links
+# to (the same "record where you land" principle Part C uses).
+
+- name: Poolside
+  ats: ashby
+  identifier: poolside
+  tier: hot
+  tags: [ai, genai, research]
+  # 15 real postings, all "Member of Engineering" roles, Remote (EMEA/East
+  # Coast) -- matches filters.yaml's own "remote" location term.
+
+- name: Alan
+  ats: ashby
+  identifier: alan
+  tier: hot
+  tags: [healthtech, insurtech, paris]
+  # 113 postings, 76 France/remote-plausible incl. real "CTO Founder
+  # Associate - internship" and "Insurance Graduate Program" in Paris.
+
+- name: Qonto
+  ats: lever
+  identifier: qonto
+  tier: hot
+  tags: [fintech, paris]
+  # 43 postings, 31 France/remote-plausible. Also hit Ashby under the same
+  # slug (also 43, overlapping job titles -- e.g. "Collaborateur Comptable
+  # - Junior" appears on both) -- Qonto's own live homepage
+  # (qonto.com/en/careers) links only to lever.co, confirmed the current
+  # canonical board; Ashby not added to avoid duplicate postings of the
+  # same jobs from two sources.
+
+- name: Swile
+  ats: lever
+  identifier: swile
+  tier: hot
+  tags: [fintech, hr-tech, montpellier]
+  # 24 postings, 17 France/remote-plausible incl. real Montpellier-based
+  # Customer Care roles.
+
+- name: Ledger
+  ats: ashby
+  identifier: ledger
+  tier: hot
+  tags: [crypto, hardware, paris]
+  # 8 postings, 6 France/remote-plausible incl. real Paris-based "HR
+  # Operations Senior Manager" and "Staff Security Operations Engineer".
+  # Also hit Lever under the same slug, but with only 1 stale, non-French
+  # posting ("Local Market Outreach - Australia") -- Ledger's own live
+  # homepage links directly to jobs.ashbyhq.com/ledger, confirming Ashby
+  # as the real, current board; Lever not added.
+
+- name: Back Market
+  ats: ashby
+  identifier: backmarket
+  tier: hot
+  tags: [ecommerce, sustainability, paris]
+  # 18 postings, 13 France/remote-plausible incl. real Paris-based "Senior
+  # Data Scientist" roles. Back Market's own corporate domain has
+  # previously returned 403 to our honest User-Agent (M16 Part C notes),
+  # but this is a separate, third-party-hosted board (api.ashbyhq.com),
+  # not subject to that wall.
+
+- name: Veepee
+  ats: lever
+  identifier: veepee
+  tier: hot
+  tags: [ecommerce, retail, paris]
+  # 73 postings, 16 France/remote-plausible incl. a real "Alternance -
+  # Charge de transformation solutions RH" apprenticeship (Saint Vulbas).
+
+- name: BlaBlaCar
+  ats: lever
+  identifier: blablacar
+  tier: hot
+  tags: [mobility, marketplace, paris]
+  # 12 postings, all France/remote-plausible, Paris-heavy. Previously
+  # "Unresolved, not yet attempted" in M14 Part B's resolved_domains.md --
+  # resolved here.
+
+- name: Pennylane
+  ats: ashby
+  identifier: pennylane
+  tier: hot
+  tags: [fintech, accounting, paris]
+  # 163 postings, 88 France/remote-plausible, Paris-heavy French fintech.
+
+- name: Shift Technology
+  ats: greenhouse
+  identifier: shifttechnology
+  tier: hot
+  tags: [ai, insurtech, paris]
+  # 23 postings, 13 France/remote-plausible incl. real "BI & Data Engineer"
+  # in "France - Paris".
+
+- name: Sorare
+  ats: ashby
+  identifier: sorare
+  tier: hot
+  tags: [gaming, web3, paris]
+  # 4 postings, all Paris, incl. real "Marketing Intern" and "Player
+  # Experience Intern".
+
+- name: Younited
+  ats: lever
+  identifier: younited
+  tier: hot
+  tags: [fintech, credit, paris]
+  # 5 postings, 4 France/remote-plausible incl. a real "Alternance - Data
+  # Analyst Credit Risk" in Paris.
+
+- name: Pigment
+  ats: lever
+  identifier: pigment
+  tier: hot
+  tags: [saas, data, paris]
+  # 113 postings, 44 France/remote-plausible -- a French-founded (Paris HQ)
+  # company with heavy global postings too; filters.yaml narrows the rest.
+
+- name: Malt
+  ats: lever
+  identifier: malt
+  tier: hot
+  tags: [marketplace, freelance, paris]
+  # 32 postings, 20 France/remote-plausible, well-known French freelance
+  # marketplace.
+
+- name: Agicap
+  ats: lever
+  identifier: agicap
+  tier: hot
+  tags: [fintech, saas, lyon]
+  # 30 postings, 9 France/remote-plausible -- a Lyon-based cash-flow SaaS
+  # company with heavy DACH-region postings too.
+
+- name: Silvr
+  ats: greenhouse
+  identifier: silvr
+  tier: hot
+  tags: [fintech, ecommerce, paris]
+  # Only 1 current posting ("Fashion Marketing Intern, Fully Remote") --
+  # thin but real and live; added per M8b's "a small/empty board is still
+  # a valid source" precedent. Silvr's own homepage links to
+  # careers.silvr.co, which currently fails to resolve (a stale link on
+  # their end, not ours) -- the real board is this confirmed Greenhouse
+  # token regardless.
+
+- name: Finary
+  ats: ashby
+  identifier: finary
+  tier: hot
+  tags: [fintech, wealth, paris]
+  # 10 postings, all Paris/remote, incl. a real French-language "Ingenieur
+  # Patrimonial - Stage" internship.
+
+- name: Platform.sh
+  ats: greenhouse
+  identifier: platformsh
+  tier: hot
+  tags: [cloud, devtools, remote]
+  # 7 postings, all explicitly Remote across France/Germany/Spain/UK/
+  # Canada -- matches filters.yaml's own "remote" location term.
+
+- name: Nabla
+  ats: ashby
+  identifier: nabla
+  tier: hot
+  tags: [ai, healthtech, paris]
+  # 15 postings, 9 France/remote-plausible incl. real Paris-office
+  # "Internship - Finance Analyst".
+
+- name: Cardiologs
+  ats: lever
+  identifier: cardiologs
+  tier: hot
+  tags: [medtech, ai, paris]
+  # Only 1 current posting ("Strategic Account Manager", Paris) -- thin
+  # but real; a Philips-owned medtech AI company that keeps its own board.
+
+- name: Raidium
+  ats: lever
+  identifier: raidium
+  tier: hot
+  tags: [medtech, ai, paris]
+  # 4 postings, 3 France/remote-plausible, real Paris-based medical-imaging
+  # AI startup.
+
+- name: Meilisearch
+  ats: lever
+  identifier: meili
+  tier: hot
+  tags: [devtools, search, opensource]
+  # Only 1 posting ("Spontaneous applications", Remote) -- a standing
+  # open-application listing rather than a specific role; confirmed real
+  # via meilisearch.com/careers, which links to this exact Lever board.
+  # Added so a real stage/alternance posting surfaces the moment one opens.
