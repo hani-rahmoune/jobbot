@@ -104,10 +104,12 @@ def test_extract_locs_drops_a_loc_that_is_not_a_fetchable_url() -> None:
 
 # --- SitemapDiscovery.discover_job_urls -------------------------------------
 
-
-@pytest.fixture
-def mock_client() -> httpx.Client:
-    return httpx.Client()
+# M14 Part D: this file used to define its own function-scoped mock_client
+# fixture (`return httpx.Client()`), shadowing conftest.py's session-scoped
+# one and re-paying httpx's ~0.3s default SSLContext/CA-bundle setup cost on
+# every single test in this file instead of once for the whole session --
+# see conftest.py's own mock_client docstring. Removed; every test below now
+# resolves to conftest.py's shared fixture instead.
 
 
 def test_discover_job_urls_traverses_index_then_leaf_sitemaps(mock_client: httpx.Client) -> None:

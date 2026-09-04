@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import ssl
 import sys
 import threading
 import time
@@ -34,26 +35,60 @@ from jobbot.store import JobStore
 BASE = datetime(2024, 1, 1, tzinfo=UTC)
 GREENHOUSE_BOARD = "https://boards-api.greenhouse.io/v1/boards/{identifier}/jobs"
 
+# M14 Part D: one bare SSLContext, built once for the whole test session and
+# handed to every httpx.Client() this file's tests construct (see the
+# fixture below) -- passing `verify=False` alone still leaves httpx building
+# a brand new ssl.SSLContext() per call (see httpx._config.create_ssl_context),
+# and constructing one from a thread touching the ssl module for the first
+# time costs ~0.02-0.2s on this machine (confirmed via cProfile: this file's
+# own run()-driven ThreadPoolExecutor tests dominated the suite's duration
+# almost entirely on this cost, not on any real work). httpx accepts an
+# already-built SSLContext as `verify` and skips constructing one at all in
+# that case. Sharing one instance across threads is safe -- it's read-only
+# configuration, never per-connection state -- and respx intercepts at the
+# transport layer before any of it is ever touched for a real handshake.
+_SHARED_TEST_SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+_SHARED_TEST_SSL_CONTEXT.check_hostname = False
+_SHARED_TEST_SSL_CONTEXT.verify_mode = ssl.CERT_NONE
+
 
 @pytest.fixture(autouse=True)
 def _fast_httpx_client_in_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """run.py legitimately constructs its own httpx.Client() with the
     default verify=True (as real network safety requires -- this is the one
-    module allowed to build a real client), which pays ~0.5-1s for
-    SSLContext/CA-bundle setup per construction. This file calls run()/
-    main() many times, so left alone that adds up to several seconds.
-    respx intercepts at the transport layer regardless of `verify`, so no
-    real TLS handshake ever happens in these tests either way -- only the
+    module allowed to build a real client), which pays real SSLContext/CA-
+    bundle setup cost per construction. This file calls run()/main() many
+    times, each spinning up its own ThreadPoolExecutor with fresh worker
+    threads (by design -- see _fetch_one_concurrently's own docstring on
+    per-worker client isolation), so left alone that cost is paid over and
+    over. respx intercepts at the transport layer regardless of `verify`, so
+    no real TLS handshake ever happens in these tests either way -- only the
     suite's speed is at stake here, not the correctness of run.py's actual
     (unmodified) production code path.
+
+    Both httpx.Client AND httpx.HTTPTransport need patching, not just the
+    former: _fetch_one_concurrently builds its per-worker transport as
+    `httpx.HTTPTransport()` (no verify kwarg) and only then wraps it in
+    `httpx.Client(transport=transport, ...)` -- once a Client is given an
+    already-built transport, its own verify handling never runs at all, so
+    the transport's own default (verify=True) is what actually pays the
+    cost. Confirmed by profiling: patching only httpx.Client left this
+    file's ThreadPoolExecutor-driven tests dominated by
+    ssl.create_default_context() calls that never went near Client at all.
     """
-    original_init = httpx.Client.__init__
+    original_client_init = httpx.Client.__init__
+    original_transport_init = httpx.HTTPTransport.__init__
 
-    def _fast_init(self, *args, **kwargs):
-        kwargs.setdefault("verify", False)
-        original_init(self, *args, **kwargs)
+    def _fast_client_init(self, *args, **kwargs):
+        kwargs.setdefault("verify", _SHARED_TEST_SSL_CONTEXT)
+        original_client_init(self, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.Client, "__init__", _fast_init)
+    def _fast_transport_init(self, *args, **kwargs):
+        kwargs.setdefault("verify", _SHARED_TEST_SSL_CONTEXT)
+        original_transport_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "__init__", _fast_client_init)
+    monkeypatch.setattr(httpx.HTTPTransport, "__init__", _fast_transport_init)
 
 
 def _make_job(**overrides: object) -> Job:
