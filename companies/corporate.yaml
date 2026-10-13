@@ -818,6 +818,7 @@
 - name: Geodis
   ats: talentsoft
   identifier: https://injob.geodis.com
+  enabled: false
   tier: warm
   tags: [logistics, transport, talentsoft]
   # M11 rejected injob.geodis.com as "a proprietary ASP.NET portal, no
